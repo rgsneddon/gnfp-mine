@@ -2,7 +2,7 @@
 /**
  * gnfp-mine — dedicated $GNFP CPU miner.
  * --threads N starts N real worker_threads (cap 256). Main thread only
- * speaks stratum and submits every valid share immediately.
+ * speaks stratum and submits one current-job share at a time.
  * Refuses to connect or hash without a real gnfp1 payout address.
  */
 import fs from 'node:fs';
@@ -12,11 +12,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
-import { hashMeetsJob, prepareShareSubmit, snapshotJob } from './hash_share.js';
+import {
+  createSharePipeline,
+  snapshotJob,
+} from './hash_share.js';
 
-export { prepareShareSubmit, snapshotJob, hashMeetsJob } from './hash_share.js';
+export {
+  createSharePipeline,
+  prepareShareSubmit,
+  snapshotJob,
+  hashMeetsJob,
+} from './hash_share.js';
 
-export const VERSION = '1.0.6';
+export const VERSION = '1.0.7';
 export const CLIENT = 'gnfp-mine';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
 export const MAX_THREADS = 256;
@@ -295,6 +303,9 @@ export function createHashFarm(threadCount, workerPath = HASH_WORKER) {
       const snap = snapshotJob(job);
       for (const w of workers) w.postMessage({ type: 'job', job: snap });
     },
+    go() {
+      for (const w of workers) w.postMessage({ type: 'go' });
+    },
     onMessage(fn) {
       listeners.push(fn);
     },
@@ -339,48 +350,41 @@ function connectOnce(cfg, session) {
       resolve(why);
     }
 
+    let writeOk = true;
     function send(obj) {
-      if (!sock.writable || !obj || typeof obj !== 'object') return;
+      if (!sock.writable || !obj || typeof obj !== 'object') return false;
       let line;
       try {
         line = `${JSON.stringify(obj)}\n`;
       } catch {
-        return;
+        return false;
       }
-      sock.write(line);
+      writeOk = sock.write(line);
+      return true;
     }
 
-    const seenShares = new Set();
-    const shareQueue = [];
-    const seenJobs = [];
-    function rememberJob(next) {
-      const id = String(next?.jobId || next?.id || '');
-      if (!id) return;
-      if (!seenJobs.includes(id)) seenJobs.push(id);
-      while (seenJobs.length > 8) {
-        const drop = seenJobs.shift();
-        for (const key of [...seenShares]) {
-          if (String(key).startsWith(`${drop}:`)) seenShares.delete(key);
-        }
-        for (let i = shareQueue.length - 1; i >= 0; i -= 1) {
-          if (shareQueue[i].job.jobId === drop) shareQueue.splice(i, 1);
-        }
+    const pipe = createSharePipeline();
+    function flushShares() {
+      if (!sock.writable || !writeOk) return;
+      for (;;) {
+        const prep = pipe.nextToSend();
+        if (!prep) return;
+        send(stratumSubmitMsg(cfg, prep.job, prep.nonce));
+        farm.go();
       }
     }
     function enqueueShare(foundOn, nonce) {
-      const prep = prepareShareSubmit({ foundOn, nonce, seen: seenShares });
-      if (!prep.ok) return;
-      shareQueue.push(prep);
-    }
-    function drainShares() {
-      let n = 0;
-      while (n < 4 && shareQueue.length) {
-        const prep = shareQueue.shift();
-        if (!prep || !hashMeetsJob(prep.job, prep.nonce, '')) continue;
-        send(stratumSubmitMsg(cfg, prep.job, prep.nonce));
-        n += 1;
+      const prep = pipe.offer(foundOn || job, nonce);
+      if (!prep.ok) {
+        farm.go();
+        return;
       }
+      flushShares();
     }
+    sock.on('drain', () => {
+      writeOk = true;
+      flushShares();
+    });
 
     function paintLive() {
       const elapsed = Math.max(0.001, (Date.now() - started) / 1000);
@@ -443,7 +447,7 @@ function connectOnce(cfg, session) {
         if (msg.method === 'job' || msg.input || msg.preWork) {
           job = snapshotJob(msg);
           session.height = Number(job?.height) || session.height || 0;
-          rememberJob(job);
+          pipe.setJob(job);
           farm.setJob(job);
           console.log(
             `job ${msg.jobId || msg.id} height=${msg.height} diff=${msg.difficulty} algo=${msg.algorithm || 'beamhashIII'} workers=${cfg.threads}`,
@@ -452,6 +456,7 @@ function connectOnce(cfg, session) {
         }
         const reply = classifyPoolReply(msg);
         if (reply.kind === 'accepted' || reply.kind === 'rejected' || reply.kind === 'block') {
+          pipe.acked();
           const next = applyShareAck(session, reply);
           session.accepted = next.accepted;
           session.rejected = next.rejected;
@@ -462,6 +467,7 @@ function connectOnce(cfg, session) {
             console.log(`${reply.kind} share worker=${cfg.worker} ${reply.description || ''}`);
           }
           paintLive();
+          flushShares();
         } else if (reply.kind === 'login') {
           console.log('pool:', msg.description, msg.asset || 'GNFP');
         } else if (msg.error && reply.kind === 'other') {
@@ -471,7 +477,7 @@ function connectOnce(cfg, session) {
     });
 
     const statsTick = setInterval(reportStats, 1000);
-    const shareTick = setInterval(drainShares, 20);
+    const shareTick = setInterval(flushShares, 100);
     sock.on('close', () => {
       clearInterval(statsTick);
       clearInterval(shareTick);

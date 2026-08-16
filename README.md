@@ -113,7 +113,7 @@ Once connected you get job lines and a status line with:
 
 Each pool share reply is printed as `accepted share`, `rejected share`, or `BLOCK FOUND`. Counters follow those replies (code `1` / description `accepted`, negative code / `rejected`, or a formed-block mark).
 
-Shares shown on the public pool page are **this block only**. This miner submits difficulty-valid work hashes only.
+Shares shown on the public pool page are **this block only**. This miner submits difficulty-valid work hashes only. A share is bound to the job it was found on, re-checked locally, and sent one at a time — stale or duplicate lines are dropped here so the book does not reject them.
 
 ## Flags
 

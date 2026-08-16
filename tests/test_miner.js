@@ -10,6 +10,7 @@ import {
   classifyPoolReply,
   createHashFarm,
   createMinerStats,
+  createSharePipeline,
   formatLiveStatus,
   honorThreads,
   loadMinerConfig,
@@ -25,7 +26,13 @@ import {
   validateMinerUser,
   VERSION,
 } from '../src/miner.js';
-import { gnfpWorkHash, hashMeetsJob, hashNonceRange, meetsTarget } from '../src/hash_share.js';
+import {
+  gnfpWorkHash,
+  hashMeetsJob,
+  hashNonceRange,
+  meetsTarget,
+  normalizeCpuNonce,
+} from '../src/hash_share.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VALID = 'gnfp18ff7e8b2f0ef3e96f598231638aafd5a5abc490c';
@@ -135,6 +142,55 @@ test('prepareShareSubmit keeps a share on the job it was found on', () => {
   assert.equal(prepareShareSubmit({ foundOn: null, nonce: 'aa', seen }).ok, false);
 });
 
+test('normalizeCpuNonce is always 16 hex; stale jobs never go on the wire', () => {
+  assert.equal(normalizeCpuNonce('aa'), '00000000000000aa');
+  assert.equal(normalizeCpuNonce('0xdeadbeef'), '00000000deadbeef');
+  assert.equal(normalizeCpuNonce('ffffffffffffffffff'), 'ffffffffffffffff');
+  assert.equal(normalizeCpuNonce('nope'), '');
+  const jobA = { jobId: 'job-a', input: 'pre-a', difficulty: 1 };
+  const jobB = { jobId: 'job-b', input: 'pre-b', difficulty: 1 };
+  let nonce = '';
+  for (let i = 0; i < 40000 && !nonce; i += 1) {
+    const hex = i.toString(16).padStart(16, '0');
+    if (hashMeetsJob(jobA, hex, '')) nonce = hex;
+  }
+  assert.ok(nonce);
+  assert.equal(
+    prepareShareSubmit({ foundOn: jobA, nonce, liveJob: jobB }).reason,
+    'stale_job',
+  );
+  assert.equal(prepareShareSubmit({ foundOn: jobA, nonce, liveJob: jobA }).ok, true);
+});
+
+test('share pipeline sends one current-job share at a time and drops the rest', () => {
+  const jobA = { jobId: 'job-a', input: 'pre-a', difficulty: 1 };
+  const jobB = { jobId: 'job-b', input: 'pre-b', difficulty: 1 };
+  const hitsA = [];
+  const hitsB = [];
+  for (let i = 0; i < 80000 && (hitsA.length < 3 || hitsB.length < 1); i += 1) {
+    const hex = i.toString(16).padStart(16, '0');
+    if (hitsA.length < 3 && hashMeetsJob(jobA, hex, '')) hitsA.push(hex);
+    if (hitsB.length < 1 && hashMeetsJob(jobB, hex, '')) hitsB.push(hex);
+  }
+  assert.equal(hitsA.length, 3);
+  const pipe = createSharePipeline({ maxInFlight: 1, maxQueued: 2 });
+  pipe.setJob(jobA);
+  assert.equal(pipe.offer(jobA, hitsA[0]).ok, true);
+  assert.equal(pipe.offer(jobA, hitsA[1]).ok, true);
+  assert.equal(pipe.offer(jobA, hitsA[2]).reason, 'queue_full');
+  assert.equal(pipe.offer(jobB, hitsB[0]).reason, 'stale_job');
+  const first = pipe.nextToSend();
+  assert.equal(first.job.jobId, 'job-a');
+  assert.equal(first.nonce, hitsA[0]);
+  assert.equal(pipe.nextToSend(), null);
+  pipe.acked();
+  const second = pipe.nextToSend();
+  assert.equal(second.nonce, hitsA[1]);
+  pipe.setJob(jobB);
+  assert.equal(pipe.queued(), 0);
+  assert.equal(pipe.offer(jobA, hitsA[0]).reason, 'stale_job');
+});
+
 test('share acks update accepted, rejected and blocks found', () => {
   let stats = createMinerStats();
   assert.equal(classifyPoolReply({ code: 1, description: 'accepted' }).kind, 'accepted');
@@ -205,6 +261,7 @@ test('--print-config after a saved valid setup reprints remembered flags', () =>
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
+  assert.equal(VERSION, '1.0.7');
   const second = runMiner(['--print-config'], { GNFP_MINE_CONFIG: file });
   assert.equal(second.status, 0);
   const b = JSON.parse(second.stdout);
@@ -234,6 +291,8 @@ test('hashNonceRange finds a share on an easy job', () => {
   const got = hashNonceRange(job, 0, 20000, 1);
   assert.equal(got.hashes, 20000);
   assert.ok(got.shares.length > 0);
+  assert.equal(got.shares[0].length, 16);
+  assert.match(got.shares[0], /^[0-9a-f]{16}$/);
   assert.equal(hashMeetsJob(job, got.shares[0], ''), true);
 });
 
