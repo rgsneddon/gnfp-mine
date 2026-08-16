@@ -52,6 +52,13 @@ test('cli help names GNFP stratum 1474 and --user', () => {
   assert.match(r.stdout, /--user/);
 });
 
+test('parse --tls for PERC stratum and default off for GNFP', () => {
+  const plain = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN]);
+  assert.equal(plain.tls, false);
+  const secured = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN, '--tls']);
+  assert.equal(secured.tls, true);
+});
+
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
   const cfg = parseMinerArgs(['node', 'miner.js']);
   assert.equal(cfg.port, 1474);

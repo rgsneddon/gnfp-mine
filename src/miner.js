@@ -7,12 +7,13 @@
  */
 import fs from 'node:fs';
 import net from 'net';
+import tls from 'node:tls';
 import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.0.3';
+export const VERSION = '1.0.4';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
 export const MAX_THREADS = 256;
 export const HASH_WORKER = fileURLToPath(new URL('./hash_worker.js', import.meta.url));
@@ -34,6 +35,7 @@ Options:
                            hel.restoreprivacy.online:1474 (Helsinki front)
   --user NAME.RIG    gnfp1 payout address.worker   (required unless remembered)
   --threads N        real CPU workers (default = CPU count, max ${MAX_THREADS})
+  --tls              TLS stratum (PERC mineperc :1466). GNFP :1474 is plain TCP
   --print-config     print resolved pool/user/threads and exit
   --help
 `;
@@ -97,7 +99,7 @@ export function loadMinerConfig(file) {
     if (!validateMinerUser(user).ok) return null;
     const pool = String(raw.pool || '').trim() || DEFAULT_POOL;
     const threads = honorThreads(raw.threads).threads;
-    return { pool, user, threads };
+    return { pool, user, threads, tls: Boolean(raw.tls) };
   } catch {
     return null;
   }
@@ -112,6 +114,7 @@ export function saveMinerConfig(file, cfg) {
     pool: String(cfg.pool || DEFAULT_POOL),
     user: gate.login,
     threads: honorThreads(cfg.threads).threads,
+    tls: Boolean(cfg.tls),
     version: VERSION,
     coin: 'GNFP',
   };
@@ -129,6 +132,7 @@ export function parseMinerArgs(argv = process.argv, saved = null) {
   const threads = hasFlag(argv, '--threads')
     ? honorThreads(flag(argv, '--threads')).threads
     : (prior.threads != null ? honorThreads(prior.threads).threads : defaultThreadCount());
+  const useTls = argv.includes('--tls') || (prior.tls === true && !argv.includes('--notls'));
   const [host, portStr] = String(pool).split(':');
   const gate = validateMinerUser(user);
   return {
@@ -137,11 +141,13 @@ export function parseMinerArgs(argv = process.argv, saved = null) {
     host,
     port: Number(portStr || 1474),
     threads,
+    tls: useTls,
     worker: gate.ok ? gate.worker : '',
     address: gate.ok ? gate.address : payoutFromLogin(user),
     suppliedUser: hasFlag(argv, '--user'),
     suppliedPool: hasFlag(argv, '--pool'),
     suppliedThreads: hasFlag(argv, '--threads'),
+    suppliedTls: argv.includes('--tls') || argv.includes('--notls'),
   };
 }
 
@@ -285,9 +291,21 @@ export function createHashFarm(threadCount, workerPath = HASH_WORKER) {
   };
 }
 
+function openStratum(cfg) {
+  if (cfg.tls) {
+    return tls.connect({
+      host: cfg.host,
+      port: cfg.port,
+      rejectUnauthorized: false,
+      requestCert: false,
+    });
+  }
+  return net.connect(cfg.port, cfg.host);
+}
+
 function connectOnce(cfg, session) {
   return new Promise((resolve) => {
-    const sock = net.connect(cfg.port, cfg.host);
+    const sock = openStratum(cfg);
     sock.setEncoding('utf8');
     let buf = '';
     let job = null;
@@ -351,9 +369,9 @@ function connectOnce(cfg, session) {
       }
     });
 
-    sock.on('connect', () => {
-      send(stratumLoginMsg(cfg));
-    });
+    const onReady = () => send(stratumLoginMsg(cfg));
+    if (cfg.tls) sock.once('secureConnect', onReady);
+    else sock.once('connect', onReady);
     sock.on('error', (err) => {
       console.error('socket', err.message);
       finish(err.message);
@@ -417,13 +435,14 @@ export function main(argv = process.argv, opts = {}) {
   const resolved = resolveMinerConfig(argv, opts);
   const cfg = resolved;
   if (argv.includes('--print-config')) {
-    if (cfg.gate.ok && (cfg.suppliedUser || cfg.suppliedPool || cfg.suppliedThreads || !cfg.saved)) {
+    if (cfg.gate.ok && (cfg.suppliedUser || cfg.suppliedPool || cfg.suppliedThreads || cfg.suppliedTls || !cfg.saved)) {
       saveMinerConfig(cfg.configPath, cfg);
     }
     process.stdout.write(`${JSON.stringify({
       pool: cfg.pool,
       user: cfg.user,
       threads: cfg.threads,
+      tls: Boolean(cfg.tls),
       host: cfg.host,
       port: cfg.port,
       worker: cfg.worker,
