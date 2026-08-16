@@ -12,8 +12,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
+import { hashMeetsJob, prepareShareSubmit, snapshotJob } from './hash_share.js';
 
-export const VERSION = '1.0.4';
+export { prepareShareSubmit, snapshotJob, hashMeetsJob } from './hash_share.js';
+
+export const VERSION = '1.0.5';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
 export const MAX_THREADS = 256;
 export const HASH_WORKER = fileURLToPath(new URL('./hash_worker.js', import.meta.url));
@@ -251,14 +254,16 @@ export function stratumStatsMsg(cfg, extra = {}) {
 }
 
 export function stratumSubmitMsg(cfg, job, nonce) {
+  const snap = snapshotJob(job) || {};
+  const jobId = snap.jobId || '1';
   return {
     method: 'submit',
     login: cfg.user,
     threads: cfg.threads,
-    id: job?.jobId || job?.id || '1',
-    nonce,
+    id: jobId,
+    nonce: String(nonce || ''),
     output: '',
-    jobId: job?.jobId || job?.id,
+    jobId,
     jsonrpc: '2.0',
   };
 }
@@ -280,7 +285,8 @@ export function createHashFarm(threadCount, workerPath = HASH_WORKER) {
   return {
     count: n,
     setJob(job) {
-      for (const w of workers) w.postMessage({ type: 'job', job });
+      const snap = snapshotJob(job);
+      for (const w of workers) w.postMessage({ type: 'job', job: snap });
     },
     onMessage(fn) {
       listeners.push(fn);
@@ -327,8 +333,46 @@ function connectOnce(cfg, session) {
     }
 
     function send(obj) {
-      if (!sock.writable) return;
-      sock.write(`${JSON.stringify(obj)}\n`);
+      if (!sock.writable || !obj || typeof obj !== 'object') return;
+      let line;
+      try {
+        line = `${JSON.stringify(obj)}\n`;
+      } catch {
+        return;
+      }
+      sock.write(line);
+    }
+
+    const seenShares = new Set();
+    const shareQueue = [];
+    const seenJobs = [];
+    function rememberJob(next) {
+      const id = String(next?.jobId || next?.id || '');
+      if (!id) return;
+      if (!seenJobs.includes(id)) seenJobs.push(id);
+      while (seenJobs.length > 8) {
+        const drop = seenJobs.shift();
+        for (const key of [...seenShares]) {
+          if (String(key).startsWith(`${drop}:`)) seenShares.delete(key);
+        }
+        for (let i = shareQueue.length - 1; i >= 0; i -= 1) {
+          if (shareQueue[i].job.jobId === drop) shareQueue.splice(i, 1);
+        }
+      }
+    }
+    function enqueueShare(foundOn, nonce) {
+      const prep = prepareShareSubmit({ foundOn, nonce, seen: seenShares });
+      if (!prep.ok) return;
+      shareQueue.push(prep);
+    }
+    function drainShares() {
+      let n = 0;
+      while (n < 4 && shareQueue.length) {
+        const prep = shareQueue.shift();
+        if (!prep || !hashMeetsJob(prep.job, prep.nonce, '')) continue;
+        send(stratumSubmitMsg(cfg, prep.job, prep.nonce));
+        n += 1;
+      }
     }
 
     function paintLive() {
@@ -365,7 +409,7 @@ function connectOnce(cfg, session) {
     farm.onMessage((msg) => {
       if (msg.type === 'hashed') hashes += Number(msg.n || 0);
       if (msg.type === 'share' && msg.nonce) {
-        send(stratumSubmitMsg(cfg, job, msg.nonce));
+        enqueueShare(msg.job || job, msg.nonce);
       }
     });
 
@@ -390,8 +434,9 @@ function connectOnce(cfg, session) {
           continue;
         }
         if (msg.method === 'job' || msg.input || msg.preWork) {
-          job = msg;
-          session.height = Number(msg.height) || session.height || 0;
+          job = snapshotJob(msg);
+          session.height = Number(job?.height) || session.height || 0;
+          rememberJob(job);
           farm.setJob(job);
           console.log(
             `job ${msg.jobId || msg.id} height=${msg.height} diff=${msg.difficulty} algo=${msg.algorithm || 'beamhashIII'} workers=${cfg.threads}`,
@@ -419,8 +464,10 @@ function connectOnce(cfg, session) {
     });
 
     const statsTick = setInterval(reportStats, 1000);
+    const shareTick = setInterval(drainShares, 20);
     sock.on('close', () => {
       clearInterval(statsTick);
+      clearInterval(shareTick);
       if (process.stdout.isTTY) process.stdout.write('\n');
       finish('closed');
     });

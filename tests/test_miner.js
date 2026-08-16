@@ -15,6 +15,7 @@ import {
   loadMinerConfig,
   MAX_THREADS,
   parseMinerArgs,
+  prepareShareSubmit,
   REFUSE_MSG,
   resolveMinerConfig,
   saveMinerConfig,
@@ -111,6 +112,24 @@ test('stratum login, stats and submit all report threads', () => {
   assert.equal(sub.threads, 8);
   assert.equal(sub.method, 'submit');
   assert.equal(sub.login, VALID_LOGIN);
+});
+
+test('prepareShareSubmit keeps a share on the job it was found on', () => {
+  const jobA = { jobId: 'job-a', input: 'pre-a', difficulty: 1 };
+  const jobB = { jobId: 'job-b', input: 'pre-b', difficulty: 1 };
+  let nonce = '';
+  for (let i = 0; i < 40000 && !nonce; i += 1) {
+    const hex = i.toString(16).padStart(16, '0');
+    if (hashMeetsJob(jobA, hex, '') && !hashMeetsJob(jobB, hex, '')) nonce = hex;
+  }
+  assert.ok(nonce, 'need a nonce that meets A only');
+  const seen = new Set();
+  const ok = prepareShareSubmit({ foundOn: jobA, nonce, seen });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.job.jobId, 'job-a');
+  assert.equal(prepareShareSubmit({ foundOn: jobA, nonce, seen }).ok, false);
+  assert.equal(prepareShareSubmit({ foundOn: jobB, nonce, seen }).reason, 'local_below_target');
+  assert.equal(prepareShareSubmit({ foundOn: null, nonce: 'aa', seen }).ok, false);
 });
 
 test('share acks update accepted, rejected and blocks found', () => {

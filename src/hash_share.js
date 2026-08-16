@@ -3,12 +3,22 @@
  */
 import { createHash } from 'crypto';
 
+const HASH_FIELD_MAX = 256;
+
+function clipHashField(value) {
+  return String(value || '').slice(0, HASH_FIELD_MAX);
+}
+
 export function gnfpWorkHash(preWork, nonce, solution) {
   return createHash('sha256')
-    .update(String(preWork || ''), 'utf8')
-    .update(String(nonce || ''), 'utf8')
-    .update(String(solution || ''), 'utf8')
+    .update(clipHashField(preWork), 'utf8')
+    .update(clipHashField(nonce), 'utf8')
+    .update(clipHashField(solution), 'utf8')
     .digest('hex');
+}
+
+export function jobDifficultyBits(difficulty) {
+  return Math.max(1, Number(difficulty) || 1);
 }
 
 export function meetsTarget(hash, bits) {
@@ -26,8 +36,35 @@ export function meetsTarget(hash, bits) {
 
 export function hashMeetsJob(job, nonce, solution = '') {
   const pre = String(job?.input || job?.preWork || '');
-  const bits = Number(job?.difficulty) || 1;
+  const bits = jobDifficultyBits(job?.difficulty);
   return meetsTarget(gnfpWorkHash(pre, nonce, solution), bits);
+}
+
+export function snapshotJob(job) {
+  if (!job || typeof job !== 'object') return null;
+  const jobId = String(job.jobId || job.id || '');
+  const input = String(job.input || job.preWork || '');
+  if (!jobId && !input) return null;
+  return {
+    jobId,
+    id: jobId,
+    input,
+    preWork: input,
+    difficulty: jobDifficultyBits(job.difficulty),
+    height: Number(job.height) || 0,
+  };
+}
+
+/** Only submit a nonce found on this exact job snapshot. Never retarget onto a later job. */
+export function prepareShareSubmit({ foundOn, nonce, seen } = {}) {
+  const job = snapshotJob(foundOn);
+  const n = String(nonce || '');
+  if (!job || !job.jobId || !n) return { ok: false, reason: 'incomplete' };
+  const key = `${job.jobId}:${n}`;
+  if (seen && seen.has(key)) return { ok: false, reason: 'duplicate' };
+  if (!hashMeetsJob(job, n, '')) return { ok: false, reason: 'local_below_target' };
+  if (seen) seen.add(key);
+  return { ok: true, key, job, nonce: n };
 }
 
 /** Hash `count` nonces starting at `start`, stepping by `stride`. */
