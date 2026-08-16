@@ -1,7 +1,7 @@
 {
   "name": "gnfp-mine",
-  "version": "1.0.2",
-  "description": "Dedicated $GNFP CPU miner — submits difficulty-valid hashes to god.restoreprivacy.online:1474",
+  "version": "1.0.3",
+  "description": "Dedicated $GNFP CPU miner — submits difficulty-valid hashes to de.restoreprivacy.online:1474",
   "type": "module",
   "bin": {
     "gnfp-mine": "src/miner.js"
