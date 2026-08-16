@@ -9,7 +9,7 @@ import os from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 
-export const VERSION = '1.0.1';
+export const VERSION = '1.0.2';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
 export const MAX_THREADS = 256;
 export const HASH_WORKER = fileURLToPath(new URL('./hash_worker.js', import.meta.url));
@@ -56,6 +56,39 @@ export function parseMinerArgs(argv = process.argv) {
     : honorThreads(rawThreads).threads;
   const [host, portStr] = String(pool).split(':');
   return { pool, user, host, port: Number(portStr || 1474), threads };
+}
+
+export function stratumLoginMsg(cfg) {
+  return {
+    method: 'login',
+    login: cfg.user,
+    threads: cfg.threads,
+    id: 1,
+    jsonrpc: '2.0',
+  };
+}
+
+export function stratumStatsMsg(cfg, extra = {}) {
+  return {
+    method: 'stats',
+    login: cfg.user,
+    threads: cfg.threads,
+    jsonrpc: '2.0',
+    ...extra,
+  };
+}
+
+export function stratumSubmitMsg(cfg, job, nonce) {
+  return {
+    method: 'submit',
+    login: cfg.user,
+    threads: cfg.threads,
+    id: job?.jobId || job?.id || '1',
+    nonce,
+    output: '',
+    jobId: job?.jobId || job?.id,
+    jsonrpc: '2.0',
+  };
 }
 
 export function createHashFarm(threadCount, workerPath = HASH_WORKER) {
@@ -116,35 +149,24 @@ function connectOnce(cfg) {
 
     function reportStats() {
       const elapsed = Math.max(0.001, (Date.now() - started) / 1000);
-      send({
-        method: 'stats',
-        login: cfg.user,
-        threads: cfg.threads,
+      send(stratumStatsMsg(cfg, {
         hashes,
         hashrate: hashes / elapsed,
         version: VERSION,
         jobId: job?.jobId || job?.id,
         height: job?.height,
-        jsonrpc: '2.0',
-      });
+      }));
     }
 
     farm.onMessage((msg) => {
       if (msg.type === 'hashed') hashes += Number(msg.n || 0);
       if (msg.type === 'share' && msg.nonce) {
-        send({
-          method: 'submit',
-          id: job?.jobId || job?.id || '1',
-          nonce: msg.nonce,
-          output: '',
-          jobId: job?.jobId || job?.id,
-          jsonrpc: '2.0',
-        });
+        send(stratumSubmitMsg(cfg, job, msg.nonce));
       }
     });
 
     sock.on('connect', () => {
-      send({ method: 'login', login: cfg.user, id: 1, jsonrpc: '2.0' });
+      send(stratumLoginMsg(cfg));
     });
     sock.on('error', (err) => {
       console.error('socket', err.message);

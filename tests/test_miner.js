@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { createHashFarm, honorThreads, MAX_THREADS, parseMinerArgs, VERSION } from '../src/miner.js';
+import { createHashFarm, honorThreads, MAX_THREADS, parseMinerArgs, stratumLoginMsg, stratumStatsMsg, stratumSubmitMsg, VERSION } from '../src/miner.js';
 import { gnfpWorkHash, hashMeetsJob, hashNonceRange, meetsTarget } from '../src/hash_share.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -38,6 +38,20 @@ test('parse args default to GNFP pool and clamp threads 1–256', () => {
   assert.equal(j.threads, 4);
   assert.equal(j.coin, 'GNFP');
   assert.equal(j.version, VERSION);
+});
+
+test('stratum login, stats and submit all report threads', () => {
+  const cfg = parseMinerArgs(['node', 'miner.js', '--user', 'gnfp1abc.rig', '--threads', '8']);
+  const login = stratumLoginMsg(cfg);
+  const stats = stratumStatsMsg(cfg, { hashes: 10 });
+  const sub = stratumSubmitMsg(cfg, { jobId: 'j1' }, 'aa');
+  assert.equal(login.threads, 8);
+  assert.equal(login.login, 'gnfp1abc.rig');
+  assert.equal(stats.threads, 8);
+  assert.equal(stats.method, 'stats');
+  assert.equal(sub.threads, 8);
+  assert.equal(sub.method, 'submit');
+  assert.equal(sub.login, 'gnfp1abc.rig');
 });
 
 test('hash share helper matches difficulty-gated work hashes', () => {
