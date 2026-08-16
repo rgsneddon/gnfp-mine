@@ -16,7 +16,8 @@ import { hashMeetsJob, prepareShareSubmit, snapshotJob } from './hash_share.js';
 
 export { prepareShareSubmit, snapshotJob, hashMeetsJob } from './hash_share.js';
 
-export const VERSION = '1.0.5';
+export const VERSION = '1.0.6';
+export const CLIENT = 'gnfp-mine';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
 export const MAX_THREADS = 256;
 export const HASH_WORKER = fileURLToPath(new URL('./hash_worker.js', import.meta.url));
@@ -38,7 +39,7 @@ Options:
                            hel.restoreprivacy.online:1474 (Helsinki front)
   --user NAME.RIG    gnfp1 payout address.worker   (required unless remembered)
   --threads N        real CPU workers (default = CPU count, max ${MAX_THREADS})
-  --tls              TLS stratum (PERC mineperc :1466). GNFP :1474 is plain TCP
+  --tls              TLS stratum (off for GNFP :1474, which is plain TCP)
   --print-config     print resolved pool/user/threads and exit
   --help
 `;
@@ -238,6 +239,8 @@ export function stratumLoginMsg(cfg) {
     method: 'login',
     login: cfg.user,
     threads: cfg.threads,
+    client: CLIENT,
+    version: VERSION,
     id: 1,
     jsonrpc: '2.0',
   };
@@ -248,6 +251,8 @@ export function stratumStatsMsg(cfg, extra = {}) {
     method: 'stats',
     login: cfg.user,
     threads: cfg.threads,
+    client: CLIENT,
+    version: VERSION,
     jsonrpc: '2.0',
     ...extra,
   };
@@ -260,6 +265,8 @@ export function stratumSubmitMsg(cfg, job, nonce) {
     method: 'submit',
     login: cfg.user,
     threads: cfg.threads,
+    client: CLIENT,
+    version: VERSION,
     id: jobId,
     nonce: String(nonce || ''),
     output: '',

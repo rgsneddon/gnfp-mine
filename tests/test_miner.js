@@ -112,6 +112,9 @@ test('stratum login, stats and submit all report threads', () => {
   assert.equal(sub.threads, 8);
   assert.equal(sub.method, 'submit');
   assert.equal(sub.login, VALID_LOGIN);
+  assert.equal(login.client, 'gnfp-mine');
+  assert.equal(sub.client, 'gnfp-mine');
+  assert.equal(stats.client, 'gnfp-mine');
 });
 
 test('prepareShareSubmit keeps a share on the job it was found on', () => {

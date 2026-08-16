@@ -2,8 +2,8 @@
 
 Dedicated **$GNFP** CPU miner for the live Germany book. CLI only (a GUI comes later).
 
-- Coin: GNFP (not PERC, not Beam)
-- Algo: BeamHash III
+- Coin: GNFP
+- Algo: BeamHash III CPU
 - Stratum: plain TCP `de.restoreprivacy.online:1474`
 - Also: `sg.restoreprivacy.online:1474` (join) and `hel.restoreprivacy.online:1474` (Helsinki front)
 
