@@ -1,0 +1,21 @@
+{
+  "name": "gnfp-mine",
+  "version": "1.0.0",
+  "description": "Dedicated $GNFP CPU miner — submits difficulty-valid hashes to god.restoreprivacy.online:1474",
+  "type": "module",
+  "bin": {
+    "gnfp-mine": "src/miner.js"
+  },
+  "scripts": {
+    "start": "node src/miner.js",
+    "test": "node --test tests/*.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rgsneddon/gnfp-mine.git"
+  }
+}
