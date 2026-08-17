@@ -60,11 +60,11 @@ test('cli help names GNFP stratum 1474 and --user', () => {
   assert.match(r.stdout, /--user/);
 });
 
-test('parse --tls for PERC stratum and default off for GNFP', () => {
-  const plain = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN]);
-  assert.equal(plain.tls, false);
-  const secured = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN, '--tls']);
+test('TLS is the shipped default; --notls is the local opt-out', () => {
+  const secured = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN]);
   assert.equal(secured.tls, true);
+  const plain = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN, '--notls']);
+  assert.equal(plain.tls, false);
 });
 
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
@@ -261,7 +261,7 @@ test('--print-config after a saved valid setup reprints remembered flags', () =>
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
-  assert.equal(VERSION, '1.0.7');
+  assert.equal(VERSION, '1.0.8');
   const second = runMiner(['--print-config'], { GNFP_MINE_CONFIG: file });
   assert.equal(second.status, 0);
   const b = JSON.parse(second.stdout);

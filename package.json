@@ -1,6 +1,6 @@
 {
   "name": "gnfp-mine",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Dedicated $GNFP CPU miner — submits difficulty-valid hashes to de.restoreprivacy.online:1474",
   "type": "module",
   "bin": {

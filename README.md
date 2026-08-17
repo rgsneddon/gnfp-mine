@@ -4,7 +4,11 @@ Dedicated **$GNFP** CPU miner for the live Germany book. CLI only (a GUI comes l
 
 - Coin: GNFP
 - Algo: BeamHash III CPU
-- Stratum: plain TCP `de.restoreprivacy.online:1474`
+- Pin: **1.0.8** — https://github.com/rgsneddon/gnfp-mine/releases/tag/v1.0.8
+- Stratum: TLS by default to `de.restoreprivacy.online:1474` (`--notls` for local plaintext)
+- Cutover: book → fronts → miners. This pin matches the hash-linked book. Older miners do not mint on the new book.
+- Miner identities stay hashed. The client does not publish wallets, IPs, or logins to the public explorer.
+- CPU-only. GPU/ASIC Beam solutions mint nothing.
 - Also: `sg.restoreprivacy.online:1474` (join) and `hel.restoreprivacy.online:1474` (Helsinki front)
 
 The miner **refuses to connect or hash** unless `--user` is a real `gnfp1` payout address. After a valid run it remembers pool, user, and threads so the next launch can omit those flags.

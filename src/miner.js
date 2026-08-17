@@ -24,7 +24,7 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.0.7';
+export const VERSION = '1.0.8';
 export const CLIENT = 'gnfp-mine';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
 export const MAX_THREADS = 256;
@@ -32,7 +32,7 @@ export const HASH_WORKER = fileURLToPath(new URL('./hash_worker.js', import.meta
 export const GNFP1_RE = /^gnfp1[0-9a-z]{20,80}$/i;
 export const REFUSE_MSG = 'gnfp-mine: refuse — need a real gnfp1 payout address (--user gnfp1….worker)';
 
-export const HELP = `gnfp-mine ${VERSION} — $GNFP CPU miner (BeamHash III wire)
+export const HELP = `gnfp-mine ${VERSION} — $GNFP CPU miner (CPU-only. GPU/ASIC solutions mint nothing.)
 
 Usage:
   gnfp-mine --pool de.restoreprivacy.online:1474 --user gnfp1YOURADDRESS.worker --threads 8
@@ -42,12 +42,12 @@ without one. After a valid run, pool / user / threads are remembered and
 reused when you omit those flags.
 
 Options:
-  --pool HOST:PORT   default ${DEFAULT_POOL} (plain TCP, --notls implied)
+  --pool HOST:PORT   default ${DEFAULT_POOL} (TLS by default)
                      also: sg.restoreprivacy.online:1474 (join)
                            hel.restoreprivacy.online:1474 (Helsinki front)
   --user NAME.RIG    gnfp1 payout address.worker   (required unless remembered)
   --threads N        real CPU workers (default = CPU count, max ${MAX_THREADS})
-  --tls              TLS stratum (off for GNFP :1474, which is plain TCP)
+  --notls            local plaintext stratum only
   --print-config     print resolved pool/user/threads and exit
   --help
 `;
@@ -144,7 +144,7 @@ export function parseMinerArgs(argv = process.argv, saved = null) {
   const threads = hasFlag(argv, '--threads')
     ? honorThreads(flag(argv, '--threads')).threads
     : (prior.threads != null ? honorThreads(prior.threads).threads : defaultThreadCount());
-  const useTls = argv.includes('--tls') || (prior.tls === true && !argv.includes('--notls'));
+  const useTls = !argv.includes('--notls') && (argv.includes('--tls') || prior.tls !== false);
   const [host, portStr] = String(pool).split(':');
   const gate = validateMinerUser(user);
   return {

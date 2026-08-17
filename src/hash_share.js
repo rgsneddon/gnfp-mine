@@ -26,12 +26,28 @@ export function isCpuNonce(nonce) {
   return new RegExp(`^[0-9a-f]{${CPU_NONCE_HEX_LEN}}$`, 'i').test(String(nonce || ''));
 }
 
+export const CPU_HASH_ROUNDS = 8;
+export const CPU_HASH_PERSONAL = 'gnfp-cpu-v1';
+
 export function gnfpWorkHash(preWork, nonce, solution) {
-  return createHash('sha256')
-    .update(clipHashField(preWork), 'utf8')
-    .update(clipHashField(nonce), 'utf8')
-    .update(clipHashField(solution), 'utf8')
-    .digest('hex');
+  const pre = clipHashField(preWork);
+  const n = clipHashField(nonce);
+  const sol = clipHashField(solution);
+  let acc = createHash('sha256')
+    .update(CPU_HASH_PERSONAL, 'utf8')
+    .update(pre, 'utf8')
+    .update(n, 'utf8')
+    .update(sol, 'utf8')
+    .digest();
+  for (let i = 0; i < CPU_HASH_ROUNDS; i += 1) {
+    acc = createHash('sha256')
+      .update(acc)
+      .update(String(i))
+      .update(pre, 'utf8')
+      .update(n, 'utf8')
+      .digest();
+  }
+  return acc.toString('hex');
 }
 
 export function jobDifficultyBits(difficulty) {
