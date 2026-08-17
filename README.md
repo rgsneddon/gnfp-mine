@@ -4,7 +4,7 @@ Dedicated **$GNFP** CPU miner for the live Germany book. CLI only (a GUI comes l
 
 - Coin: GNFP
 - Algo: BeamHash III CPU
-- Pin: **1.0.8** — https://github.com/rgsneddon/gnfp-mine/releases/tag/v1.0.8
+- Pin: **1.0.9** — https://github.com/rgsneddon/gnfp-mine/releases/tag/v1.0.9
 - Stratum: TLS by default to `de.restoreprivacy.online:1474` (`--notls` for local plaintext)
 - Cutover: book → fronts → miners. This pin matches the hash-linked book. Older miners do not mint on the new book.
 - Miner identities stay hashed. The client does not publish wallets, IPs, or logins to the public explorer.
@@ -126,8 +126,11 @@ Shares shown on the public pool page are **this block only**. This miner submits
 | `--pool HOST:PORT` | Stratum host (default `de.restoreprivacy.online:1474`) |
 | `--user gnfp1….worker` | Real payout address (required unless remembered) |
 | `--threads N` | Real CPU workers, 1–256 |
+| `--notls` | Local plaintext only. Public `*.restoreprivacy.online` books are TLS. |
 | `--print-config` | Print resolved config and exit |
 | `--help` | Usage |
+
+1.0.7 saved `"tls": false` in `~/.gnfp-mine/config.json`. 1.0.9 ignores that on the public book so an upgrade no longer speaks plaintext to a TLS listener (that showed up as `reconnect in 2s` with no job). Delete the file or just run 1.0.9.
 
 ## Tests
 

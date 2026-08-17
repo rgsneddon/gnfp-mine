@@ -24,10 +24,12 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.0.8';
+export const VERSION = '1.0.9';
 export const CLIENT = 'gnfp-mine';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
 export const MAX_THREADS = 256;
+export const CONNECT_TIMEOUT_MS = 15_000;
+export const TLS_REQUIRED_MSG = 'pool is TLS. public book/fronts need TLS — drop --notls (or delete ~/.gnfp-mine/config.json)';
 export const HASH_WORKER = fileURLToPath(new URL('./hash_worker.js', import.meta.url));
 export const GNFP1_RE = /^gnfp1[0-9a-z]{20,80}$/i;
 export const REFUSE_MSG = 'gnfp-mine: refuse — need a real gnfp1 payout address (--user gnfp1….worker)';
@@ -47,7 +49,7 @@ Options:
                            hel.restoreprivacy.online:1474 (Helsinki front)
   --user NAME.RIG    gnfp1 payout address.worker   (required unless remembered)
   --threads N        real CPU workers (default = CPU count, max ${MAX_THREADS})
-  --notls            local plaintext stratum only
+  --notls            local plaintext stratum only (public book/fronts are TLS)
   --print-config     print resolved pool/user/threads and exit
   --help
 `;
@@ -101,6 +103,33 @@ export function defaultConfigPath(env = process.env) {
   return path.join(os.homedir(), '.gnfp-mine', 'config.json');
 }
 
+/** Germany book and join/Helsinki fronts speak TLS. --notls is local only. */
+export function isPublicGnfpPool(host) {
+  const h = String(host || '').trim().toLowerCase().replace(/\.$/, '');
+  return h === 'restoreprivacy.online' || h.endsWith('.restoreprivacy.online');
+}
+
+/**
+ * TLS unless `--notls`. A leftover 1.0.7 `tls: false` in config.json must
+ * not pin public book/front connections to plaintext.
+ */
+export function resolveUseTls(argv = [], prior = null, host = '') {
+  if (Array.isArray(argv) && argv.includes('--notls')) return false;
+  if (Array.isArray(argv) && argv.includes('--tls')) return true;
+  if (isPublicGnfpPool(host)) return true;
+  if (prior && Object.prototype.hasOwnProperty.call(prior, 'tls')) {
+    return Boolean(prior.tls);
+  }
+  return true;
+}
+
+export function looksLikeTlsRecord(chunk) {
+  const raw = typeof chunk === 'string' ? chunk : String(chunk || '');
+  if (!raw) return false;
+  const c = raw.charCodeAt(0);
+  return c === 0x14 || c === 0x15 || c === 0x16 || c === 0x17;
+}
+
 export function loadMinerConfig(file) {
   const dest = String(file || '');
   if (!dest || !fs.existsSync(dest)) return null;
@@ -144,8 +173,8 @@ export function parseMinerArgs(argv = process.argv, saved = null) {
   const threads = hasFlag(argv, '--threads')
     ? honorThreads(flag(argv, '--threads')).threads
     : (prior.threads != null ? honorThreads(prior.threads).threads : defaultThreadCount());
-  const useTls = !argv.includes('--notls') && (argv.includes('--tls') || prior.tls !== false);
   const [host, portStr] = String(pool).split(':');
+  const useTls = resolveUseTls(argv, prior, host);
   const gate = validateMinerUser(user);
   return {
     pool,
@@ -320,6 +349,7 @@ function openStratum(cfg) {
     return tls.connect({
       host: cfg.host,
       port: cfg.port,
+      servername: cfg.host,
       rejectUnauthorized: false,
       requestCert: false,
     });
@@ -427,11 +457,28 @@ function connectOnce(cfg, session) {
     const onReady = () => send(stratumLoginMsg(cfg));
     if (cfg.tls) sock.once('secureConnect', onReady);
     else sock.once('connect', onReady);
+    sock.setTimeout(CONNECT_TIMEOUT_MS, () => {
+      const why = cfg.tls ? 'tls handshake timeout' : 'connect timeout';
+      console.error('socket', why);
+      if (!cfg.tls && isPublicGnfpPool(cfg.host)) {
+        console.error(TLS_REQUIRED_MSG);
+      }
+      finish(why);
+    });
     sock.on('error', (err) => {
       console.error('socket', err.message);
+      if (!cfg.tls && isPublicGnfpPool(cfg.host)) {
+        console.error(TLS_REQUIRED_MSG);
+      }
       finish(err.message);
     });
     sock.on('data', (chunk) => {
+      if (!cfg.tls && looksLikeTlsRecord(chunk)) {
+        console.error(TLS_REQUIRED_MSG);
+        finish('tls_required');
+        return;
+      }
+      sock.setTimeout(0);
       buf += chunk;
       let idx;
       while ((idx = buf.indexOf('\n')) >= 0) {
@@ -527,15 +574,19 @@ export function main(argv = process.argv, opts = {}) {
     return 2;
   }
 
+  const scheme = cfg.tls ? 'tls' : 'tcp';
   console.log(
-    `gnfp-mine ${VERSION} → tcp://${cfg.host}:${cfg.port} user=${cfg.user} threads=${cfg.threads} coin=GNFP`,
+    `gnfp-mine ${VERSION} → ${scheme}://${cfg.host}:${cfg.port} user=${cfg.user} threads=${cfg.threads} coin=GNFP`,
   );
+  if (!cfg.tls && isPublicGnfpPool(cfg.host)) {
+    console.error(TLS_REQUIRED_MSG);
+  }
 
   const session = createMinerStats();
   const loop = async () => {
     for (;;) {
-      await connectOnce(cfg, session);
-      console.log('reconnect in 2s', cfg.host, cfg.port);
+      const why = await connectOnce(cfg, session);
+      console.log('reconnect in 2s', cfg.host, cfg.port, why || 'closed');
       await new Promise((r) => setTimeout(r, 2000));
     }
   };

@@ -14,11 +14,15 @@ import {
   formatLiveStatus,
   honorThreads,
   loadMinerConfig,
+  DEFAULT_POOL,
   MAX_THREADS,
   parseMinerArgs,
   prepareShareSubmit,
   REFUSE_MSG,
   resolveMinerConfig,
+  resolveUseTls,
+  isPublicGnfpPool,
+  looksLikeTlsRecord,
   saveMinerConfig,
   stratumLoginMsg,
   stratumStatsMsg,
@@ -65,6 +69,43 @@ test('TLS is the shipped default; --notls is the local opt-out', () => {
   assert.equal(secured.tls, true);
   const plain = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN, '--notls']);
   assert.equal(plain.tls, false);
+});
+
+test('stale 1.0.7 tls:false does not pin the public book to plaintext', () => {
+  assert.equal(isPublicGnfpPool('de.restoreprivacy.online'), true);
+  assert.equal(isPublicGnfpPool('sg.restoreprivacy.online'), true);
+  assert.equal(isPublicGnfpPool('hel.restoreprivacy.online'), true);
+  assert.equal(isPublicGnfpPool('127.0.0.1'), false);
+  assert.equal(looksLikeTlsRecord('\u0015\u0003\u0003'), true);
+  assert.equal(looksLikeTlsRecord('{"method":"job"}'), false);
+  const leftover = { pool: DEFAULT_POOL, user: VALID_LOGIN, threads: 4, tls: false };
+  const upgraded = parseMinerArgs(
+    ['node', 'miner.js', '--pool', 'de.restoreprivacy.online:1474', '--user', VALID_LOGIN, '--threads', '4'],
+    leftover,
+  );
+  assert.equal(upgraded.tls, true);
+  assert.equal(resolveUseTls([], leftover, 'de.restoreprivacy.online'), true);
+  assert.equal(resolveUseTls(['--notls'], leftover, 'de.restoreprivacy.online'), false);
+  const local = parseMinerArgs(
+    ['node', 'miner.js', '--pool', '127.0.0.1:1474', '--user', VALID_LOGIN],
+    leftover,
+  );
+  assert.equal(local.tls, false);
+  const file = scratchConfig();
+  fs.writeFileSync(file, `${JSON.stringify({
+    pool: 'de.restoreprivacy.online:1474',
+    user: VALID_LOGIN,
+    threads: 4,
+    tls: false,
+  }, null, 2)}\n`);
+  const printed = runMiner(
+    ['--pool', 'de.restoreprivacy.online:1474', '--user', VALID_LOGIN, '--threads', '4', '--print-config'],
+    { GNFP_MINE_CONFIG: file },
+  );
+  assert.equal(printed.status, 0);
+  const got = JSON.parse(printed.stdout);
+  assert.equal(got.tls, true);
+  assert.equal(got.version, '1.0.9');
 });
 
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
@@ -261,7 +302,7 @@ test('--print-config after a saved valid setup reprints remembered flags', () =>
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
-  assert.equal(VERSION, '1.0.8');
+  assert.equal(VERSION, '1.0.9');
   const second = runMiner(['--print-config'], { GNFP_MINE_CONFIG: file });
   assert.equal(second.status, 0);
   const b = JSON.parse(second.stdout);
