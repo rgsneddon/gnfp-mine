@@ -105,7 +105,7 @@ test('stale 1.0.7 tls:false does not pin the public book to plaintext', () => {
   assert.equal(printed.status, 0);
   const got = JSON.parse(printed.stdout);
   assert.equal(got.tls, true);
-  assert.equal(got.version, '1.0.9');
+  assert.equal(got.version, '1.1.0');
 });
 
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
@@ -113,10 +113,12 @@ test('parse args default to GNFP pool and clamp threads 1–256', () => {
   assert.equal(cfg.port, 1474);
   assert.match(cfg.pool, /1474/);
   assert.ok(cfg.threads >= 1 && cfg.threads <= MAX_THREADS);
-  assert.equal(honorThreads(0).threads, 1);
-  assert.equal(honorThreads(180).threads, 180);
-  assert.equal(honorThreads(8).threads, 8);
-  assert.equal(honorThreads(9999).threads, 256);
+  assert.equal(honorThreads(0, 8).threads, 1);
+  assert.equal(honorThreads(180, 8).threads, 7);
+  assert.equal(honorThreads(8, 8).threads, 7);
+  assert.equal(honorThreads(4, 8).threads, 4);
+  assert.equal(honorThreads(9999, 16).threads, 15);
+  assert.equal(honorThreads(8, 1).threads, 1);
   assert.equal(MAX_THREADS, 256);
 });
 
@@ -149,15 +151,15 @@ test('invalid or missing --user exits without starting workers', () => {
 });
 
 test('stratum login, stats and submit all report threads', () => {
-  const cfg = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN, '--threads', '8']);
+  const cfg = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN, '--threads', '4']);
   const login = stratumLoginMsg(cfg);
   const stats = stratumStatsMsg(cfg, { hashes: 10 });
   const sub = stratumSubmitMsg(cfg, { jobId: 'j1' }, 'aa');
-  assert.equal(login.threads, 8);
+  assert.equal(login.threads, 4);
   assert.equal(login.login, VALID_LOGIN);
-  assert.equal(stats.threads, 8);
+  assert.equal(stats.threads, 4);
   assert.equal(stats.method, 'stats');
-  assert.equal(sub.threads, 8);
+  assert.equal(sub.threads, 4);
   assert.equal(sub.method, 'submit');
   assert.equal(sub.login, VALID_LOGIN);
   assert.equal(login.client, 'gnfp-mine');
@@ -302,7 +304,7 @@ test('--print-config after a saved valid setup reprints remembered flags', () =>
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
-  assert.equal(VERSION, '1.0.9');
+  assert.equal(VERSION, '1.1.0');
   const second = runMiner(['--print-config'], { GNFP_MINE_CONFIG: file });
   assert.equal(second.status, 0);
   const b = JSON.parse(second.stdout);

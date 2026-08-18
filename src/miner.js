@@ -24,7 +24,7 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.0.9';
+export const VERSION = '1.1.0';
 export const CLIENT = 'gnfp-mine';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
 export const MAX_THREADS = 256;
@@ -45,10 +45,9 @@ reused when you omit those flags.
 
 Options:
   --pool HOST:PORT   default ${DEFAULT_POOL} (TLS by default)
-                     also: sg.restoreprivacy.online:1474 (join)
-                           hel.restoreprivacy.online:1474 (Helsinki front)
+                     also: sg.restoreprivacy.online:1474
   --user NAME.RIG    gnfp1 payout address.worker   (required unless remembered)
-  --threads N        real CPU workers (default = CPU count, max ${MAX_THREADS})
+  --threads N        real CPU workers (default = all device threads minus 1, max ${MAX_THREADS})
   --notls            local plaintext stratum only (public book/fronts are TLS)
   --print-config     print resolved pool/user/threads and exit
   --help
@@ -65,17 +64,28 @@ export function hasFlag(argv, name) {
   return i >= 0 && argv[i + 1] !== undefined;
 }
 
-export function defaultThreadCount() {
+export function deviceCpuCount() {
   const n = typeof os.availableParallelism === 'function'
     ? os.availableParallelism()
     : (os.cpus() || []).length || 1;
-  return honorThreads(n).threads;
+  return Math.max(1, Math.floor(Number(n) || 1));
 }
 
-export function honorThreads(raw) {
+/** Never all cores: cap at device CPUs minus 1 (or 1 on a single-core box). */
+export function maxHonorThreads(cpus = deviceCpuCount()) {
+  const n = Math.max(1, Math.floor(Number(cpus) || 1));
+  return Math.min(MAX_THREADS, n <= 1 ? 1 : n - 1);
+}
+
+export function defaultThreadCount(cpus = deviceCpuCount()) {
+  return maxHonorThreads(cpus);
+}
+
+export function honorThreads(raw, cpus = deviceCpuCount()) {
+  const cap = maxHonorThreads(cpus);
   const n = Math.floor(Number(raw));
-  if (!Number.isFinite(n) || n < 1) return { threads: 1 };
-  return { threads: Math.min(MAX_THREADS, n) };
+  if (!Number.isFinite(n) || n < 1) return { threads: 1, cap };
+  return { threads: Math.min(cap, n), cap };
 }
 
 export function isGnfpPayoutAddress(value) {
@@ -328,6 +338,7 @@ export function createHashFarm(threadCount, workerPath = HASH_WORKER) {
   }
   return {
     count: n,
+    get running() { return workers.length; },
     setJob(job) {
       const snap = snapshotJob(job);
       for (const w of workers) w.postMessage({ type: 'job', job: snap });
@@ -367,6 +378,7 @@ function connectOnce(cfg, session) {
     let hashes = 0;
     let done = false;
     const farm = createHashFarm(cfg.threads);
+    cfg = { ...cfg, threads: farm.running };
 
     function finish(why) {
       if (done) return;
