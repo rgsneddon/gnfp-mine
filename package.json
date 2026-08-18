@@ -1,6 +1,6 @@
 {
   "name": "GNFPHash",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GNFPHash — official $GNFP CPU miner. BeamHash III / old gnfp-mine / GPU / ASIC are refused.",
   "type": "module",
   "bin": {

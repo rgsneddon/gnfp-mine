@@ -24,7 +24,7 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.0.1';
 export const CLIENT = 'GNFPHash';
 export const ALGORITHM = 'GNFPHash';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
@@ -304,15 +304,16 @@ export function stratumLoginMsg(cfg, farm) {
 }
 
 export function stratumStatsMsg(cfg, extra = {}, farm) {
+  const { threads: _ignoreThreads, client: _c, version: _v, algorithm: _a, ...rest } = extra || {};
   return {
     method: 'stats',
     login: cfg.user,
+    ...rest,
     threads: liveThreads(cfg, farm),
     client: CLIENT,
     version: VERSION,
     algorithm: ALGORITHM,
     jsonrpc: '2.0',
-    ...extra,
   };
 }
 

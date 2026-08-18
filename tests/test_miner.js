@@ -106,7 +106,7 @@ test('stale 1.0.7 tls:false does not pin the public book to plaintext', () => {
   assert.equal(printed.status, 0);
   const got = JSON.parse(printed.stdout);
   assert.equal(got.tls, true);
-  assert.equal(got.version, '1.0.0');
+  assert.equal(got.version, '1.0.1');
 });
 
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
@@ -182,6 +182,10 @@ test('login/stats/submit report farm.running not requested --threads', async () 
   await farm.close();
   assert.equal(farm.running, 0);
   assert.equal(stratumLoginMsg(cfg, farm).threads, 0);
+  const spoof = stratumStatsMsg(cfg, { threads: 256, client: 'gnfp-mine', algorithm: 'beamhashIII' }, { running: 2 });
+  assert.equal(spoof.threads, 2);
+  assert.equal(spoof.client, 'GNFPHash');
+  assert.equal(spoof.algorithm, 'GNFPHash');
 });
 
 test('prepareShareSubmit keeps a share on the job it was found on', () => {
@@ -321,7 +325,7 @@ test('--print-config after a saved valid setup reprints remembered flags', () =>
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
-  assert.equal(VERSION, '1.0.0');
+  assert.equal(VERSION, '1.0.1');
   const second = runMiner(['--print-config'], { GNFP_MINE_CONFIG: file });
   assert.equal(second.status, 0);
   const b = JSON.parse(second.stdout);
