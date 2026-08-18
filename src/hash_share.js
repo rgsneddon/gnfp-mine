@@ -1,6 +1,8 @@
 /**
- * Difficulty-gated GNFP work hash — same algorithm as perc_chain/src/gnfp_pow.js.
- * Only current-job, 16-hex, empty-output shares are allowed onto the wire.
+ * GNFPHash — dedicated CPU work hash (same as gnfp/src/gnfp_pow.js).
+ * Eight sequential rounds stay: that is the GPU/ASIC brake.
+ * Faster software path (stem copy, buffers, bigger batches) does not
+ * reduce rounds. Only current-job 16-hex empty-output shares go on the wire.
  */
 import { createHash } from 'crypto';
 
@@ -27,14 +29,20 @@ export function isCpuNonce(nonce) {
 }
 
 export const CPU_HASH_ROUNDS = 8;
-export const CPU_HASH_PERSONAL = 'gnfp-cpu-v1';
+export const CPU_HASH_PERSONAL = 'GNFPHash-v1';
+export const ALGORITHM = 'GNFPHash';
+const PERSONAL_BUF = Buffer.from(CPU_HASH_PERSONAL, 'utf8');
+const ALGO_BUF = Buffer.from(ALGORITHM, 'utf8');
+const ROUND_TAGS = Array.from({ length: CPU_HASH_ROUNDS }, (_, i) => Buffer.from(String(i), 'utf8'));
+const HEX_DIGITS = Buffer.from('0123456789abcdef');
 
 export function gnfpWorkHash(preWork, nonce, solution) {
   const pre = clipHashField(preWork);
   const n = clipHashField(nonce);
   const sol = clipHashField(solution);
   let acc = createHash('sha256')
-    .update(CPU_HASH_PERSONAL, 'utf8')
+    .update(PERSONAL_BUF)
+    .update(ALGO_BUF)
     .update(pre, 'utf8')
     .update(n, 'utf8')
     .update(sol, 'utf8')
@@ -42,12 +50,23 @@ export function gnfpWorkHash(preWork, nonce, solution) {
   for (let i = 0; i < CPU_HASH_ROUNDS; i += 1) {
     acc = createHash('sha256')
       .update(acc)
-      .update(String(i))
+      .update(PERSONAL_BUF)
+      .update(ROUND_TAGS[i])
       .update(pre, 'utf8')
       .update(n, 'utf8')
       .digest();
   }
   return acc.toString('hex');
+}
+
+function nonceHex16(value) {
+  let x = Math.max(0, Math.floor(Number(value) || 0));
+  const out = Buffer.allocUnsafe(16);
+  for (let i = 15; i >= 0; i -= 1) {
+    out[i] = HEX_DIGITS[x & 15];
+    x = Math.floor(x / 16);
+  }
+  return out;
 }
 
 export function jobDifficultyBits(difficulty) {
@@ -186,10 +205,25 @@ export function hashNonceRange(job, start, count, stride = 1) {
   let nonce = Math.max(0, Math.floor(Number(start) || 0));
   const step = Math.max(1, Math.floor(Number(stride) || 1));
   const n = Math.max(0, Math.floor(Number(count) || 0));
+  const pre = clipHashField(String(job?.input || job?.preWork || ''));
+  const bits = jobDifficultyBits(job?.difficulty);
+  const preBuf = Buffer.from(pre, 'utf8');
+  const stem = createHash('sha256').update(PERSONAL_BUF).update(ALGO_BUF).update(preBuf);
   for (let i = 0; i < n; i += 1) {
-    const hex = normalizeCpuNonce(nonce.toString(16));
+    const nBuf = nonceHex16(nonce);
     nonce += step;
-    if (hex && hashMeetsJob(job, hex, '')) shares.push(hex);
+    let acc = stem.copy().update(nBuf).digest();
+    for (let r = 0; r < CPU_HASH_ROUNDS; r += 1) {
+      acc = createHash('sha256')
+        .update(acc)
+        .update(PERSONAL_BUF)
+        .update(ROUND_TAGS[r])
+        .update(preBuf)
+        .update(nBuf)
+        .digest();
+    }
+    const hex = acc.toString('hex');
+    if (meetsTarget(hex, bits)) shares.push(nBuf.toString('utf8'));
   }
   return { hashes: n, shares, nextNonce: nonce };
 }

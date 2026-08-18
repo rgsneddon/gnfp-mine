@@ -28,7 +28,7 @@ function pump() {
   if (!running) return;
   const current = job;
   if (current) {
-    const got = hashNonceRange(current, start, 32, stride);
+    const got = hashNonceRange(current, start, 256, stride);
     start = got.nextNonce;
     if (got.hashes) parentPort.postMessage({ type: 'hashed', n: got.hashes, workerId });
     if (!hold && got.shares.length) {

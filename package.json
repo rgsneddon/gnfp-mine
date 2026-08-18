@@ -1,7 +1,7 @@
 {
-  "name": "gnfp-mine",
-  "version": "1.0.9",
-  "description": "Dedicated $GNFP CPU miner — submits difficulty-valid hashes to de.restoreprivacy.online:1474",
+  "name": "GNFPHash",
+  "version": "1.0.0",
+  "description": "GNFPHash — official $GNFP CPU miner. BeamHash III / old gnfp-mine / GPU / ASIC are refused.",
   "type": "module",
   "bin": {
     "gnfp-mine": "src/miner.js"
@@ -16,6 +16,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rgsneddon/gnfp-mine.git"
+    "url": "https://github.com/rgsneddon/GNFPHash.git"
   }
 }

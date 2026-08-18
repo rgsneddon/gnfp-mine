@@ -1,15 +1,14 @@
-# gnfp-mine
+# GNFPHash
 
-Dedicated **$GNFP** CPU miner for the live Germany book. CLI only (a GUI comes later).
+Official **$GNFP** CPU miner. CLI only (a GUI comes later).
 
 - Coin: GNFP
-- Algo: BeamHash III CPU
-- Pin: **1.0.9** — https://github.com/rgsneddon/gnfp-mine/releases/tag/v1.0.9
+- Algo: **GNFPHash** (dedicated CPU work hash). BeamHash III, old gnfp-mine, GPU, and ASIC mint nothing.
+- Pin: **1.0.0** — https://github.com/rgsneddon/GNFPHash/releases
 - Stratum: TLS by default to `de.restoreprivacy.online:1474` (`--notls` for local plaintext)
-- Cutover: book → fronts → miners. This pin matches the hash-linked book. Older miners do not mint on the new book.
+- Login/stats/submit report **running farm threads**, not a requested `--threads` lie. That report cannot be turned off.
 - Miner identities stay hashed. The client does not publish wallets, IPs, or logins to the public explorer.
-- CPU-only. GPU/ASIC Beam solutions mint nothing.
-- Also: `sg.restoreprivacy.online:1474` (join) and `hel.restoreprivacy.online:1474` (Helsinki front)
+- Also: `sg.restoreprivacy.online:1474`
 
 The miner **refuses to connect or hash** unless `--user` is a real `gnfp1` payout address. After a valid run it remembers pool, user, and threads so the next launch can omit those flags.
 
@@ -30,8 +29,8 @@ That is `gnfp1` + 20–80 lowercase letters or digits, optional `.worker` tag. A
 From a clone of this repo:
 
 ```
-git clone https://github.com/rgsneddon/gnfp-mine.git
-cd gnfp-mine
+git clone https://github.com/rgsneddon/GNFPHash.git
+cd GNFPHash
 ```
 
 ### macOS

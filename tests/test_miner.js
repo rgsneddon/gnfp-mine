@@ -10,6 +10,7 @@ import {
   classifyPoolReply,
   createHashFarm,
   createMinerStats,
+  liveThreads,
   createSharePipeline,
   formatLiveStatus,
   honorThreads,
@@ -105,7 +106,7 @@ test('stale 1.0.7 tls:false does not pin the public book to plaintext', () => {
   assert.equal(printed.status, 0);
   const got = JSON.parse(printed.stdout);
   assert.equal(got.tls, true);
-  assert.equal(got.version, '1.1.0');
+  assert.equal(got.version, '1.0.0');
 });
 
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
@@ -152,9 +153,10 @@ test('invalid or missing --user exits without starting workers', () => {
 
 test('stratum login, stats and submit all report threads', () => {
   const cfg = parseMinerArgs(['node', 'miner.js', '--user', VALID_LOGIN, '--threads', '4']);
-  const login = stratumLoginMsg(cfg);
-  const stats = stratumStatsMsg(cfg, { hashes: 10 });
-  const sub = stratumSubmitMsg(cfg, { jobId: 'j1' }, 'aa');
+  const farm = { running: 4 };
+  const login = stratumLoginMsg(cfg, farm);
+  const stats = stratumStatsMsg(cfg, { hashes: 10 }, farm);
+  const sub = stratumSubmitMsg(cfg, { jobId: 'j1' }, 'aa', farm);
   assert.equal(login.threads, 4);
   assert.equal(login.login, VALID_LOGIN);
   assert.equal(stats.threads, 4);
@@ -162,9 +164,24 @@ test('stratum login, stats and submit all report threads', () => {
   assert.equal(sub.threads, 4);
   assert.equal(sub.method, 'submit');
   assert.equal(sub.login, VALID_LOGIN);
-  assert.equal(login.client, 'gnfp-mine');
-  assert.equal(sub.client, 'gnfp-mine');
-  assert.equal(stats.client, 'gnfp-mine');
+  assert.equal(login.client, 'GNFPHash');
+  assert.equal(sub.client, 'GNFPHash');
+  assert.equal(stats.client, 'GNFPHash');
+  assert.equal(login.algorithm, 'GNFPHash');
+  assert.equal(liveThreads(cfg), 0);
+});
+
+test('login/stats/submit report farm.running not requested --threads', async () => {
+  const farm = createHashFarm(2);
+  assert.equal(farm.running, 2);
+  const cfg = { user: VALID_LOGIN, threads: 99 };
+  assert.equal(liveThreads(cfg, farm), 2);
+  assert.equal(stratumLoginMsg(cfg, farm).threads, 2);
+  assert.equal(stratumStatsMsg(cfg, {}, farm).threads, 2);
+  assert.equal(stratumSubmitMsg(cfg, { jobId: 'j' }, 'aa', farm).threads, 2);
+  await farm.close();
+  assert.equal(farm.running, 0);
+  assert.equal(stratumLoginMsg(cfg, farm).threads, 0);
 });
 
 test('prepareShareSubmit keeps a share on the job it was found on', () => {
@@ -304,7 +321,7 @@ test('--print-config after a saved valid setup reprints remembered flags', () =>
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
-  assert.equal(VERSION, '1.1.0');
+  assert.equal(VERSION, '1.0.0');
   const second = runMiner(['--print-config'], { GNFP_MINE_CONFIG: file });
   assert.equal(second.status, 0);
   const b = JSON.parse(second.stdout);

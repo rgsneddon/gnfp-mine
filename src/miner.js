@@ -24,8 +24,9 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.1.0';
-export const CLIENT = 'gnfp-mine';
+export const VERSION = '1.0.0';
+export const CLIENT = 'GNFPHash';
+export const ALGORITHM = 'GNFPHash';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
 export const MAX_THREADS = 256;
 export const CONNECT_TIMEOUT_MS = 15_000;
@@ -34,7 +35,7 @@ export const HASH_WORKER = fileURLToPath(new URL('./hash_worker.js', import.meta
 export const GNFP1_RE = /^gnfp1[0-9a-z]{20,80}$/i;
 export const REFUSE_MSG = 'gnfp-mine: refuse — need a real gnfp1 payout address (--user gnfp1….worker)';
 
-export const HELP = `gnfp-mine ${VERSION} — $GNFP CPU miner (CPU-only. GPU/ASIC solutions mint nothing.)
+export const HELP = `GNFPHash ${VERSION} — $GNFP CPU miner (gnfp-mine binary). CPU-only. BeamHash III mints nothing.
 
 Usage:
   gnfp-mine --pool de.restoreprivacy.online:1474 --user gnfp1YOURADDRESS.worker --threads 8
@@ -281,39 +282,50 @@ export function formatLiveStatus({
   ].join(' ');
 }
 
-export function stratumLoginMsg(cfg) {
+/** Threads the farm is actually running on this device — never requested --threads. */
+export function liveThreads(cfg, farm) {
+  if (farm && typeof farm.running === 'number') {
+    return Math.max(0, Math.floor(Number(farm.running) || 0));
+  }
+  return 0;
+}
+
+export function stratumLoginMsg(cfg, farm) {
   return {
     method: 'login',
     login: cfg.user,
-    threads: cfg.threads,
+    threads: liveThreads(cfg, farm),
     client: CLIENT,
     version: VERSION,
+    algorithm: ALGORITHM,
     id: 1,
     jsonrpc: '2.0',
   };
 }
 
-export function stratumStatsMsg(cfg, extra = {}) {
+export function stratumStatsMsg(cfg, extra = {}, farm) {
   return {
     method: 'stats',
     login: cfg.user,
-    threads: cfg.threads,
+    threads: liveThreads(cfg, farm),
     client: CLIENT,
     version: VERSION,
+    algorithm: ALGORITHM,
     jsonrpc: '2.0',
     ...extra,
   };
 }
 
-export function stratumSubmitMsg(cfg, job, nonce) {
+export function stratumSubmitMsg(cfg, job, nonce, farm) {
   const snap = snapshotJob(job) || {};
   const jobId = snap.jobId || '1';
   return {
     method: 'submit',
     login: cfg.user,
-    threads: cfg.threads,
+    threads: liveThreads(cfg, farm),
     client: CLIENT,
     version: VERSION,
+    algorithm: ALGORITHM,
     id: jobId,
     nonce: String(nonce || ''),
     output: '',
@@ -326,6 +338,10 @@ export function createHashFarm(threadCount, workerPath = HASH_WORKER) {
   const n = honorThreads(threadCount).threads;
   const workers = [];
   const listeners = [];
+  function drop(w) {
+    const i = workers.indexOf(w);
+    if (i >= 0) workers.splice(i, 1);
+  }
   for (let i = 0; i < n; i += 1) {
     const w = new Worker(workerPath, {
       workerData: { id: i, start: i, stride: n },
@@ -333,7 +349,8 @@ export function createHashFarm(threadCount, workerPath = HASH_WORKER) {
     w.on('message', (m) => {
       for (const fn of listeners) fn({ ...m, workerId: i });
     });
-    w.on('error', () => {});
+    w.on('error', () => drop(w));
+    w.on('exit', () => drop(w));
     workers.push(w);
   }
   return {
@@ -350,7 +367,9 @@ export function createHashFarm(threadCount, workerPath = HASH_WORKER) {
       listeners.push(fn);
     },
     async close() {
-      await Promise.all(workers.map((w) => w.terminate()));
+      const live = workers.slice();
+      workers.length = 0;
+      await Promise.all(live.map((w) => w.terminate()));
     },
   };
 }
@@ -411,7 +430,7 @@ function connectOnce(cfg, session) {
       for (;;) {
         const prep = pipe.nextToSend();
         if (!prep) return;
-        send(stratumSubmitMsg(cfg, prep.job, prep.nonce));
+        send(stratumSubmitMsg(cfg, prep.job, prep.nonce, farm));
         farm.go();
       }
     }
@@ -436,7 +455,7 @@ function connectOnce(cfg, session) {
         accepted: session.accepted,
         rejected: session.rejected,
         blocks: session.blocks,
-        threads: cfg.threads,
+        threads: liveThreads(cfg, farm),
         height: job?.height || session.height || 0,
         pool: cfg.pool,
       });
@@ -455,7 +474,7 @@ function connectOnce(cfg, session) {
         version: VERSION,
         jobId: job?.jobId || job?.id,
         height: job?.height,
-      }));
+      }, farm));
       paintLive();
     }
 
@@ -466,7 +485,7 @@ function connectOnce(cfg, session) {
       }
     });
 
-    const onReady = () => send(stratumLoginMsg(cfg));
+    const onReady = () => send(stratumLoginMsg(cfg, farm));
     if (cfg.tls) sock.once('secureConnect', onReady);
     else sock.once('connect', onReady);
     sock.setTimeout(CONNECT_TIMEOUT_MS, () => {
@@ -509,7 +528,7 @@ function connectOnce(cfg, session) {
           pipe.setJob(job);
           farm.setJob(job);
           console.log(
-            `job ${msg.jobId || msg.id} height=${msg.height} diff=${msg.difficulty} algo=${msg.algorithm || 'beamhashIII'} workers=${cfg.threads}`,
+            `job ${msg.jobId || msg.id} height=${msg.height} diff=${msg.difficulty} algo=${msg.algorithm || ALGORITHM} workers=${liveThreads(cfg, farm)}`,
           );
           continue;
         }
@@ -588,7 +607,7 @@ export function main(argv = process.argv, opts = {}) {
 
   const scheme = cfg.tls ? 'tls' : 'tcp';
   console.log(
-    `gnfp-mine ${VERSION} → ${scheme}://${cfg.host}:${cfg.port} user=${cfg.user} threads=${cfg.threads} coin=GNFP`,
+    `GNFPHash ${VERSION} → ${scheme}://${cfg.host}:${cfg.port} user=${cfg.user} threads=${cfg.threads} coin=GNFP algo=${ALGORITHM}`,
   );
   if (!cfg.tls && isPublicGnfpPool(cfg.host)) {
     console.error(TLS_REQUIRED_MSG);
