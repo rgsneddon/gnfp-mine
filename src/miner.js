@@ -24,7 +24,7 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.0.1';
+export const VERSION = '1.0.2';
 export const CLIENT = 'GNFPHash';
 export const ALGORITHM = 'GNFPHash';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
@@ -33,21 +33,29 @@ export const CONNECT_TIMEOUT_MS = 15_000;
 export const TLS_REQUIRED_MSG = 'pool is TLS. public book/fronts need TLS — drop --notls (or delete ~/.gnfp-mine/config.json)';
 export const HASH_WORKER = fileURLToPath(new URL('./hash_worker.js', import.meta.url));
 export const GNFP1_RE = /^gnfp1[0-9a-z]{20,80}$/i;
+export const DEFAULT_WORKER = 'worker';
+export const MIN_WORKER_LEN = 1;
+export const MAX_WORKER_LEN = 24;
+export const WORKER_RE = /^[a-z0-9_-]{1,24}$/i;
 export const REFUSE_MSG = 'gnfp-mine: refuse — need a real gnfp1 payout address (--user gnfp1….worker)';
+export const WORKER_REFUSE_MSG = `gnfp-mine: refuse — worker name must be ${MIN_WORKER_LEN}–${MAX_WORKER_LEN} letters, digits, _ or - (--user gnfp1ADDRESS.NAME or --worker NAME)`;
+export const OLD_MINER_HINT = 'pool refused this client — use GNFPHash 1.0.2+ (client/algorithm GNFPHash) against gnfp-node 1.0.8+';
 
 export const HELP = `GNFPHash ${VERSION} — $GNFP CPU miner (gnfp-mine binary). CPU-only. BeamHash III mints nothing.
 
 Usage:
   gnfp-mine --pool de.restoreprivacy.online:1474 --user gnfp1YOURADDRESS.worker --threads 8
+  gnfp-mine --user gnfp1YOURADDRESS --worker 1 --threads 8
 
-A real gnfp1 payout address is required. The miner will not connect or hash
-without one. After a valid run, pool / user / threads are remembered and
-reused when you omit those flags.
+A real gnfp1 payout address is required. Pick your own worker name (1–24
+letters/digits/_/-). If you omit it, the default is "${DEFAULT_WORKER}". After a
+valid run, pool / user / threads are remembered and reused when you omit those flags.
 
 Options:
   --pool HOST:PORT   default ${DEFAULT_POOL} (TLS by default)
                      also: sg.restoreprivacy.online:1474
   --user NAME.RIG    gnfp1 payout address.worker   (required unless remembered)
+  --worker NAME      worker tag 1–${MAX_WORKER_LEN} chars (overrides the .tag on --user)
   --threads N        real CPU workers (default = all device threads minus 1, max ${MAX_THREADS})
   --notls            local plaintext stratum only (public book/fronts are TLS)
   --print-config     print resolved pool/user/threads and exit
@@ -97,16 +105,30 @@ export function payoutFromLogin(user) {
   return String(user || '').trim().split('.')[0] || '';
 }
 
-export function validateMinerUser(user) {
+export function normalizeMineWorker(raw) {
+  const worker = String(raw ?? '').trim();
+  if (!worker) return { ok: true, worker: DEFAULT_WORKER };
+  if (!WORKER_RE.test(worker) || worker.length < MIN_WORKER_LEN || worker.length > MAX_WORKER_LEN) {
+    return { ok: false, reason: 'worker_invalid' };
+  }
+  return { ok: true, worker };
+}
+
+export function validateMinerUser(user, workerOverride) {
   const raw = String(user || '').trim();
   if (!raw) return { ok: false, reason: 'gnfp_address_required' };
   const parts = raw.split('.');
   const address = parts[0];
-  const worker = parts.slice(1).join('.') || 'worker';
   if (!isGnfpPayoutAddress(address)) {
     return { ok: false, reason: 'gnfp_address_required' };
   }
-  return { ok: true, address, worker, login: `${address}.${worker}` };
+  const fromUser = parts.slice(1).join('.');
+  const tagged = workerOverride != null && String(workerOverride).trim() !== ''
+    ? String(workerOverride).trim()
+    : fromUser;
+  const gate = normalizeMineWorker(tagged);
+  if (!gate.ok) return { ok: false, reason: 'worker_invalid' };
+  return { ok: true, address, worker: gate.worker, login: `${address}.${gate.worker}` };
 }
 
 export function defaultConfigPath(env = process.env) {
@@ -181,12 +203,13 @@ export function parseMinerArgs(argv = process.argv, saved = null) {
   const prior = saved && typeof saved === 'object' ? saved : {};
   const pool = hasFlag(argv, '--pool') ? flag(argv, '--pool') : (prior.pool || DEFAULT_POOL);
   const user = hasFlag(argv, '--user') ? flag(argv, '--user') : (prior.user || '');
+  const workerFlag = hasFlag(argv, '--worker') ? flag(argv, '--worker') : '';
   const threads = hasFlag(argv, '--threads')
     ? honorThreads(flag(argv, '--threads')).threads
     : (prior.threads != null ? honorThreads(prior.threads).threads : defaultThreadCount());
   const [host, portStr] = String(pool).split(':');
   const useTls = resolveUseTls(argv, prior, host);
-  const gate = validateMinerUser(user);
+  const gate = validateMinerUser(user, workerFlag);
   return {
     pool,
     user: gate.ok ? gate.login : user,
@@ -200,6 +223,7 @@ export function parseMinerArgs(argv = process.argv, saved = null) {
     suppliedPool: hasFlag(argv, '--pool'),
     suppliedThreads: hasFlag(argv, '--threads'),
     suppliedTls: argv.includes('--tls') || argv.includes('--notls'),
+    suppliedWorker: hasFlag(argv, '--worker'),
   };
 }
 
@@ -213,11 +237,17 @@ export function resolveMinerConfig(argv = process.argv, { configPath, env = proc
 
 export function classifyPoolReply(msg) {
   if (!msg || typeof msg !== 'object') return { kind: 'unknown' };
-  const desc = String(msg.description || msg.result || '').toLowerCase();
+  const desc = String(msg.description || msg.result || msg.error || '').toLowerCase();
   const code = Number(msg.code);
-  const formed = msg.formed === true || msg.block?.formed === true;
-  if (formed || /\bblock\b/.test(desc) || desc.includes('block found')) {
+  const formed = msg.formed === true || msg.block?.formed === true || Boolean(msg.sealed);
+  if (formed || desc.includes('block found')) {
     return { kind: 'block', description: msg.description || 'block' };
+  }
+  if (desc.includes('old_miner_refused') || desc.includes('client_required')) {
+    return { kind: 'rejected', description: OLD_MINER_HINT };
+  }
+  if (desc.includes('worker_too_short') || desc.includes('worker_invalid')) {
+    return { kind: 'rejected', description: WORKER_REFUSE_MSG };
   }
   if (desc === 'accepted' || code === 1) {
     return { kind: 'accepted', description: msg.description || 'accepted' };
@@ -460,11 +490,7 @@ function connectOnce(cfg, session) {
         height: job?.height || session.height || 0,
         pool: cfg.pool,
       });
-      if (process.stdout.isTTY) {
-        process.stdout.write(`\r${line}`);
-      } else {
-        console.log(line);
-      }
+      console.log(line);
     }
 
     function reportStats() {
@@ -560,7 +586,6 @@ function connectOnce(cfg, session) {
     sock.on('close', () => {
       clearInterval(statsTick);
       clearInterval(shareTick);
-      if (process.stdout.isTTY) process.stdout.write('\n');
       finish('closed');
     });
   });
@@ -589,14 +614,14 @@ export function main(argv = process.argv, opts = {}) {
       version: VERSION,
     })}\n`);
     if (!cfg.gate.ok) {
-      process.stderr.write(`${REFUSE_MSG}\n`);
+      process.stderr.write(`${cfg.gate.reason === 'worker_invalid' ? WORKER_REFUSE_MSG : REFUSE_MSG}\n`);
       return 2;
     }
     return 0;
   }
 
   if (!cfg.gate.ok) {
-    process.stderr.write(`${REFUSE_MSG}\n`);
+    process.stderr.write(`${cfg.gate.reason === 'worker_invalid' ? WORKER_REFUSE_MSG : REFUSE_MSG}\n`);
     return 2;
   }
 
