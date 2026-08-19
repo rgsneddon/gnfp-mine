@@ -4,7 +4,7 @@ Official **$GNFP** CPU miner. CLI only (a GUI comes later).
 
 - Coin: GNFP
 - Algo: **GNFPHash** (dedicated CPU work hash). BeamHash III, old gnfp-mine, GPU, and ASIC mint nothing.
-- Pin: **1.0.0** — https://github.com/rgsneddon/GNFPHash/releases
+- Pin: **1.0.2** — https://github.com/rgsneddon/GNFPHash/releases
 - Stratum: TLS by default to `de.restoreprivacy.online:1474` (`--notls` for local plaintext)
 - Login/stats/submit report **running farm threads**, not a requested `--threads` lie. That report cannot be turned off.
 - Miner identities stay hashed. The client does not publish wallets, IPs, or logins to the public explorer.
@@ -73,7 +73,7 @@ Or:
 pack\win\gnfp-mine.cmd --user gnfp18ff7e8b2f0ef3e96f598231638aafd5a5abc490c.worker --threads 8
 ```
 
-`--threads` starts that many real CPU `worker_threads` (default = machine CPU count, max 256).
+`--threads` starts that many real CPU `worker_threads` (default = device CPUs minus 1, max 256). Pick your own worker tag (`--user gnfp1….NAME` or `--worker NAME`, 1–24 letters/digits/`_`/`-`). The default tag if omitted is `worker`.
 
 ## Remembered config
 
@@ -123,8 +123,9 @@ Shares shown on the public pool page are **this block only**. This miner submits
 | Flag | Meaning |
 |------|---------|
 | `--pool HOST:PORT` | Stratum host (default `de.restoreprivacy.online:1474`) |
-| `--user gnfp1….worker` | Real payout address (required unless remembered) |
-| `--threads N` | Real CPU workers, 1–256 |
+| `--user gnfp1….NAME` | Real payout address, optional `.NAME` worker tag (1–24) |
+| `--worker NAME` | Worker tag 1–24 chars (overrides the `.tag` on `--user`) |
+| `--threads N` | Real CPU workers, default CPUs−1, max 256 |
 | `--notls` | Local plaintext only. Public `*.restoreprivacy.online` books are TLS. |
 | `--print-config` | Print resolved config and exit |
 | `--help` | Usage |

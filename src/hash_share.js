@@ -8,8 +8,8 @@ import { createHash } from 'crypto';
 
 const HASH_FIELD_MAX = 256;
 export const CPU_NONCE_HEX_LEN = 16;
-export const MAX_IN_FLIGHT = 1;
-export const MAX_SHARE_QUEUE = 2;
+export const MAX_IN_FLIGHT = 2;
+export const MAX_SHARE_QUEUE = 8;
 export const IN_FLIGHT_TIMEOUT_MS = 5_000;
 
 function clipHashField(value) {

@@ -17,6 +17,11 @@ import {
   loadMinerConfig,
   DEFAULT_POOL,
   MAX_THREADS,
+  MIN_WORKER_LEN,
+  MAX_WORKER_LEN,
+  DEFAULT_WORKER,
+  WORKER_REFUSE_MSG,
+  OLD_MINER_HINT,
   parseMinerArgs,
   prepareShareSubmit,
   REFUSE_MSG,
@@ -106,7 +111,7 @@ test('stale 1.0.7 tls:false does not pin the public book to plaintext', () => {
   assert.equal(printed.status, 0);
   const got = JSON.parse(printed.stdout);
   assert.equal(got.tls, true);
-  assert.equal(got.version, '1.0.1');
+  assert.equal(got.version, '1.0.2');
 });
 
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
@@ -130,10 +135,30 @@ test('validateMinerUser accepts a real gnfp1 and refuses missing or fake', () =>
   assert.equal(ok.worker, 'rig');
   assert.equal(ok.login, VALID_LOGIN);
   assert.equal(validateMinerUser(VALID).ok, true);
+  assert.equal(validateMinerUser(VALID).worker, DEFAULT_WORKER);
+  assert.equal(validateMinerUser(`${VALID}.1`).ok, true);
+  assert.equal(validateMinerUser(`${VALID}.1`).worker, '1');
+  assert.equal(validateMinerUser(`${VALID}.a`).ok, true);
+  assert.equal(validateMinerUser(VALID, 'ryzen5600').worker, 'ryzen5600');
+  assert.equal(validateMinerUser(`${VALID}.${'x'.repeat(24)}`).ok, true);
+  assert.equal(validateMinerUser(`${VALID}.${'x'.repeat(25)}`).ok, false);
+  assert.equal(validateMinerUser(`${VALID}.${'x'.repeat(25)}`).reason, 'worker_invalid');
   assert.equal(validateMinerUser('').ok, false);
   assert.equal(validateMinerUser('GNFP_USERNAME.WORKER').ok, false);
   assert.equal(validateMinerUser('gnfp1short.rig').ok, false);
   assert.equal(validateMinerUser('beam1aaaaaaaaaaaaaaaaaaaa.rig').ok, false);
+  assert.equal(MIN_WORKER_LEN, 1);
+  assert.equal(MAX_WORKER_LEN, 24);
+});
+
+test('short or invalid --worker exits without starting workers', () => {
+  const cfgPath = scratchConfig();
+  const long = runMiner(['--user', VALID, '--worker', 'x'.repeat(25)], { GNFP_MINE_CONFIG: cfgPath });
+  assert.equal(long.status, 2);
+  assert.equal(String(long.stderr).includes(WORKER_REFUSE_MSG), true);
+  const bang = runMiner(['--user', `${VALID}.nope!`], { GNFP_MINE_CONFIG: cfgPath });
+  assert.equal(bang.status, 2);
+  assert.equal(String(bang.stderr).includes(WORKER_REFUSE_MSG), true);
 });
 
 test('invalid or missing --user exits without starting workers', () => {
@@ -260,6 +285,10 @@ test('share acks update accepted, rejected and blocks found', () => {
   assert.equal(classifyPoolReply({ code: 1, description: 'accepted' }).kind, 'accepted');
   assert.equal(classifyPoolReply({ code: -32003, description: 'rejected' }).kind, 'rejected');
   assert.equal(classifyPoolReply({ formed: true, description: 'accepted' }).kind, 'block');
+  assert.equal(classifyPoolReply({ sealed: { height: 2 }, description: 'accepted' }).kind, 'block');
+  assert.equal(classifyPoolReply({ description: 'old_miner_refused' }).kind, 'rejected');
+  assert.equal(classifyPoolReply({ description: 'old_miner_refused' }).description, OLD_MINER_HINT);
+  assert.equal(classifyPoolReply({ description: 'client_required' }).kind, 'rejected');
   assert.equal(classifyPoolReply({ description: 'Login Successful', code: 0 }).kind, 'login');
   stats = applyShareAck(stats, classifyPoolReply({ code: 1, description: 'accepted' }));
   stats = applyShareAck(stats, classifyPoolReply({ code: 1, description: 'accepted' }));
@@ -296,41 +325,41 @@ test('remembers last valid pool/user/threads when flags are omitted', () => {
   const wrote = saveMinerConfig(file, {
     pool: 'hel.restoreprivacy.online:1474',
     user: VALID,
-    threads: 6,
+    threads: 2,
   });
   assert.ok(wrote);
   assert.equal(wrote.user, `${VALID}.worker`);
   const loaded = loadMinerConfig(file);
   assert.equal(loaded.pool, 'hel.restoreprivacy.online:1474');
   assert.equal(loaded.user, `${VALID}.worker`);
-  assert.equal(loaded.threads, 6);
+  assert.equal(loaded.threads, 2);
   const resolved = resolveMinerConfig(['node', 'miner.js'], { configPath: file });
   assert.equal(resolved.gate.ok, true);
   assert.equal(resolved.pool, 'hel.restoreprivacy.online:1474');
   assert.equal(resolved.user, `${VALID}.worker`);
-  assert.equal(resolved.threads, 6);
+  assert.equal(resolved.threads, 2);
   assert.equal(resolved.worker, 'worker');
 });
 
 test('--print-config after a saved valid setup reprints remembered flags', () => {
   const file = scratchConfig();
   const first = runMiner(
-    ['--user', VALID_LOGIN, '--threads', '4', '--pool', 'sg.restoreprivacy.online:1474', '--print-config'],
+    ['--user', VALID_LOGIN, '--threads', '2', '--pool', 'sg.restoreprivacy.online:1474', '--print-config'],
     { GNFP_MINE_CONFIG: file },
   );
   assert.equal(first.status, 0);
   const a = JSON.parse(first.stdout);
   assert.equal(a.user, VALID_LOGIN);
-  assert.equal(a.threads, 4);
+  assert.equal(a.threads, 2);
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
-  assert.equal(VERSION, '1.0.1');
+  assert.equal(VERSION, '1.0.2');
   const second = runMiner(['--print-config'], { GNFP_MINE_CONFIG: file });
   assert.equal(second.status, 0);
   const b = JSON.parse(second.stdout);
   assert.equal(b.user, VALID_LOGIN);
-  assert.equal(b.threads, 4);
+  assert.equal(b.threads, 2);
   assert.equal(b.pool, 'sg.restoreprivacy.online:1474');
 });
 
