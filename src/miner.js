@@ -224,6 +224,7 @@ export function parseMinerArgs(argv = process.argv, saved = null) {
     suppliedThreads: hasFlag(argv, '--threads'),
     suppliedTls: argv.includes('--tls') || argv.includes('--notls'),
     suppliedWorker: hasFlag(argv, '--worker'),
+    gate,
   };
 }
 
@@ -231,8 +232,7 @@ export function resolveMinerConfig(argv = process.argv, { configPath, env = proc
   const file = configPath || defaultConfigPath(env);
   const saved = loadMinerConfig(file);
   const cfg = parseMinerArgs(argv, saved);
-  const gate = validateMinerUser(cfg.user);
-  return { ...cfg, configPath: file, saved: Boolean(saved), gate };
+  return { ...cfg, configPath: file, saved: Boolean(saved) };
 }
 
 export function classifyPoolReply(msg) {

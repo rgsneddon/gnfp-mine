@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
+
+/** Default runner concurrency starves the event loop once hash workers pump. */
+function test(name, fn) {
+  return nodeTest(name, { concurrency: false }, fn);
+}
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -57,6 +62,7 @@ function runMiner(args, extraEnv = {}) {
   return spawnSync(process.execPath, ['src/miner.js', ...args], {
     cwd: root,
     encoding: 'utf8',
+    timeout: 15_000,
     env: { ...process.env, ...extraEnv },
   });
 }
@@ -194,6 +200,37 @@ test('stratum login, stats and submit all report threads', () => {
   assert.equal(stats.client, 'GNFPHash');
   assert.equal(login.algorithm, 'GNFPHash');
   assert.equal(liveThreads(cfg), 0);
+});
+
+test('wire identity is GNFPHash 1.0.2; --notls is loopback-only', () => {
+  const local = parseMinerArgs([
+    'node', 'miner.js',
+    '--pool', '127.0.0.1:1474',
+    '--user', VALID_LOGIN,
+    '--threads', '1',
+    '--notls',
+  ]);
+  assert.equal(local.tls, false);
+  assert.equal(local.host, '127.0.0.1');
+  assert.equal(local.port, 1474);
+  const publicPool = parseMinerArgs([
+    'node', 'miner.js',
+    '--pool', 'de.restoreprivacy.online:1474',
+    '--user', VALID_LOGIN,
+    '--threads', '1',
+  ]);
+  assert.equal(publicPool.tls, true);
+  assert.equal(isPublicGnfpPool('sg.restoreprivacy.online'), true);
+  const farm = { running: 1 };
+  const login = stratumLoginMsg(local, farm);
+  const stats = stratumStatsMsg(local, { hashes: 1 }, farm);
+  const sub = stratumSubmitMsg(local, { jobId: 'j1' }, 'aa', farm);
+  for (const msg of [login, stats, sub]) {
+    assert.equal(msg.client, 'GNFPHash');
+    assert.equal(msg.algorithm, 'GNFPHash');
+    assert.equal(msg.version, '1.0.2');
+  }
+  assert.equal(VERSION, '1.0.2');
 });
 
 test('login/stats/submit report farm.running not requested --threads', async () => {
