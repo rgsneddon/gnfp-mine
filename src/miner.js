@@ -25,7 +25,7 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.0.4';
+export const VERSION = '1.0.5';
 export const CLIENT = 'GNFPHash';
 export const ALGORITHM = 'GNFPHash';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
@@ -129,19 +129,18 @@ export function deviceCpuCount() {
 }
 
 /**
- * Cap running workers at the same count reported as cpuCores (physical).
- * 1 thread = 1 core: a 6-core / 12-SMT box honors 6, not 12, so the pool
- * never sees threads > cpuCores (that split was CHEAT inflate).
+ * Hard clamp is MAX_THREADS (256). Device cap is logical SMT threads
+ * (a 6-core / 12-thread box can run 10 of 12). Do not auto-double.
  */
-export function maxHonorThreads(physical = devicePhysicalCount()) {
-  const n = Math.max(1, Math.floor(Number(physical) || 1));
+export function maxHonorThreads(logical = deviceLogicalCount()) {
+  const n = Math.max(1, Math.floor(Number(logical) || 1));
   return Math.min(MAX_THREADS, n);
 }
 
 /** Default uses physical cores minus 1 (leave a core for the OS). Does not auto-double for SMT. */
 export function defaultThreadCount(physical = devicePhysicalCount(), logical = deviceLogicalCount()) {
   const p = Math.max(1, Math.floor(Number(physical) || 1));
-  const cap = maxHonorThreads(p);
+  const cap = maxHonorThreads(logical);
   return Math.min(cap, p <= 1 ? 1 : p - 1);
 }
 
@@ -150,7 +149,7 @@ export function honorThreads(raw, logical, physical) {
   const phys = physical == null
     ? (logical == null ? devicePhysicalCount() : logi)
     : Math.max(1, Math.floor(Number(physical) || 1));
-  const cap = maxHonorThreads(phys);
+  const cap = maxHonorThreads(logi);
   const inv = deviceCpuInventory(phys, logi);
   const n = Math.floor(Number(raw));
   const threads = !Number.isFinite(n) || n < 1 ? 1 : Math.min(cap, n);
@@ -167,6 +166,8 @@ export function deviceCpuReport(physical = devicePhysicalCount(), logical = devi
   return {
     ...inv,
     maxThreads: Math.min(MAX_THREADS, inv.cpuThreads),
+    platform: process.platform,
+    arch: process.arch,
   };
 }
 
@@ -540,7 +541,7 @@ function connectOnce(cfg, session) {
 
     const pipe = createSharePipeline();
     function flushShares() {
-      if (!sock.writable || !writeOk) return;
+      if (!job?.jobId || !sock.writable || !writeOk) return;
       for (;;) {
         const prep = pipe.nextToSend();
         if (!prep) return;
@@ -549,6 +550,7 @@ function connectOnce(cfg, session) {
       }
     }
     function enqueueShare(foundOn, nonce) {
+      if (!job?.jobId) return;
       const prep = pipe.offer(foundOn || job, nonce);
       if (!prep.ok) {
         farm.go();

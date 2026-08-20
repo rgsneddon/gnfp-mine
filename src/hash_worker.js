@@ -65,10 +65,7 @@ function startNative() {
   });
   native.on('exit', () => {
     native = null;
-    if (!nativeEverHashed) {
-      nativeDead = true;
-      failWaiters();
-    }
+    failWaiters();
   });
   return native;
 }
@@ -116,6 +113,11 @@ parentPort.on('message', (msg) => {
   if (msg.type === 'job') {
     job = snapshotJob(msg.job);
     start = workerId;
+    failWaiters();
+    if (native) {
+      try { native.kill(); } catch { /* already gone */ }
+      native = null;
+    }
   }
   if (msg.type === 'stop') running = false;
 });

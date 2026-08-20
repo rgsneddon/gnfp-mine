@@ -4,9 +4,9 @@ Official **$GNFP** CPU miner. CLI only (a GUI comes later).
 
 - Coin: GNFP
 - Algo: **GNFPHash** (dedicated CPU work hash). BeamHash III, old gnfp-mine, GPU, and ASIC mint nothing.
-- Pin: **1.0.4** — https://github.com/rgsneddon/GNFPHash/releases
+- Pin: **1.0.5** — https://github.com/rgsneddon/GNFPHash/releases
 - Stratum: TLS by default to `de.restoreprivacy.online:1474` (`--notls` for local plaintext)
-- Login/stats/submit report **running farm threads** plus **cpuCores** read from the device (`os.availableParallelism` / `os.cpus`). 1 thread = 1 core. That report cannot be turned off.
+- Login/stats/submit report **running farm threads** plus **cpuCores** / **cpuThreads**. `--threads 10` on a 12-thread CPU runs 10 (hard clamp 256).
 - Miner identities stay hashed. The client does not publish wallets, IPs, or logins to the public explorer.
 - Also: `sg.restoreprivacy.online:1474`
 
