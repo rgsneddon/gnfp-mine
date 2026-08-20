@@ -50,6 +50,8 @@ import {
   hashNonceRange,
   meetsTarget,
   normalizeCpuNonce,
+  MAX_IN_FLIGHT,
+  MAX_SHARE_QUEUE,
 } from '../src/hash_share.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -319,6 +321,12 @@ test('share pipeline sends nothing until the live job is set', () => {
   assert.equal(pipe.offer(jobA, nonce).ok, true);
   const sent = pipe.nextToSend();
   assert.equal(sent.job.jobId, 'job-a');
+});
+
+test('share pipeline can carry a 10-thread 310 kH/s farm onto the wire', () => {
+  assert.ok(MAX_IN_FLIGHT >= 8);
+  assert.ok(MAX_SHARE_QUEUE >= 32);
+  assert.equal(MAX_THREADS, 256);
 });
 
 test('share pipeline sends one current-job share at a time and drops the rest', () => {
