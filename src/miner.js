@@ -6,6 +6,7 @@
  * Refuses to connect or hash without a real gnfp1 payout address.
  */
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import net from 'net';
 import tls from 'node:tls';
 import os from 'node:os';
@@ -24,7 +25,7 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.0.3';
+export const VERSION = '1.0.4';
 export const CLIENT = 'GNFPHash';
 export const ALGORITHM = 'GNFPHash';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
@@ -39,7 +40,7 @@ export const MAX_WORKER_LEN = 24;
 export const WORKER_RE = /^[a-z0-9_-]{1,24}$/i;
 export const REFUSE_MSG = 'gnfp-mine: refuse — need a real gnfp1 payout address (--user gnfp1….worker)';
 export const WORKER_REFUSE_MSG = `gnfp-mine: refuse — worker name must be ${MIN_WORKER_LEN}–${MAX_WORKER_LEN} letters, digits, _ or - (--user gnfp1ADDRESS.NAME or --worker NAME)`;
-export const OLD_MINER_HINT = 'pool refused this client — use GNFPHash 1.0.3+ (client/algorithm GNFPHash) against gnfp-node 1.1.8+';
+export const OLD_MINER_HINT = 'pool refused this client — use GNFPHash 1.0.4+ (client/algorithm GNFPHash) against gnfp-node 1.1.8+';
 
 export const HELP = `GNFPHash ${VERSION} — $GNFP CPU miner (gnfp-mine binary). CPU-only. BeamHash III mints nothing.
 
@@ -56,7 +57,7 @@ Options:
                      also: sg.restoreprivacy.online:1474
   --user NAME.RIG    gnfp1 payout address.worker   (required unless remembered)
   --worker NAME      worker tag 1–${MAX_WORKER_LEN} chars (overrides the .tag on --user)
-  --threads N        real CPU workers (default = all device threads minus 1, max ${MAX_THREADS})
+  --threads N        CPU workers; 1 thread = 1 core (default = cores minus 1, max = device cores)
   --notls            local plaintext stratum only (public book/fronts are TLS)
   --print-config     print resolved pool/user/threads and exit
   --help
@@ -73,28 +74,100 @@ export function hasFlag(argv, name) {
   return i >= 0 && argv[i + 1] !== undefined;
 }
 
-export function deviceCpuCount() {
+/** Logical processors (SMT siblings). os.cpus() is one entry per thread, not per core. */
+export function deviceLogicalCount() {
   const n = typeof os.availableParallelism === 'function'
     ? os.availableParallelism()
     : (os.cpus() || []).length || 1;
   return Math.max(1, Math.floor(Number(n) || 1));
 }
 
-/** Never all cores: cap at device CPUs minus 1 (or 1 on a single-core box). */
-export function maxHonorThreads(cpus = deviceCpuCount()) {
-  const n = Math.max(1, Math.floor(Number(cpus) || 1));
-  return Math.min(MAX_THREADS, n <= 1 ? 1 : n - 1);
+/** Physical cores. SMT threads sit in pairs inside these. */
+export function devicePhysicalCount() {
+  try {
+    if (process.platform === 'darwin') {
+      const n = Number(execFileSync('sysctl', ['-n', 'hw.physicalcpu'], { encoding: 'utf8' }).trim());
+      if (n > 0) return Math.max(1, Math.floor(n));
+    } else if (process.platform === 'linux') {
+      const txt = fs.readFileSync('/proc/cpuinfo', 'utf8');
+      const seen = new Set();
+      let pid = '0';
+      for (const line of txt.split('\n')) {
+        const phys = line.match(/^physical id\s*:\s*(.+)$/i);
+        if (phys) {
+          pid = phys[1].trim();
+          continue;
+        }
+        const core = line.match(/^core id\s*:\s*(.+)$/i);
+        if (core) seen.add(`${pid}:${core[1].trim()}`);
+      }
+      if (seen.size > 0) return seen.size;
+    } else if (process.platform === 'win32') {
+      const out = execFileSync('powershell.exe', [
+        '-NoProfile', '-Command',
+        '(Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum',
+      ], { encoding: 'utf8' });
+      const n = Number(String(out).trim());
+      if (n > 0) return Math.max(1, Math.floor(n));
+    }
+  } catch {
+    /* fall back to logical */
+  }
+  return deviceLogicalCount();
 }
 
-export function defaultThreadCount(cpus = deviceCpuCount()) {
-  return maxHonorThreads(cpus);
+export function deviceCpuInventory(physical = devicePhysicalCount(), logical = deviceLogicalCount()) {
+  const cpuCores = Math.max(1, Math.floor(Number(physical) || 1));
+  const cpuThreads = Math.max(cpuCores, Math.floor(Number(logical) || cpuCores));
+  const smt = Math.max(1, Math.round(cpuThreads / cpuCores));
+  return { cpuCores, cpuThreads, smt };
 }
 
-export function honorThreads(raw, cpus = deviceCpuCount()) {
-  const cap = maxHonorThreads(cpus);
+/** @deprecated alias — logical SMT threads, not physical cores. */
+export function deviceCpuCount() {
+  return deviceLogicalCount();
+}
+
+/**
+ * Cap running workers at the same count reported as cpuCores (physical).
+ * 1 thread = 1 core: a 6-core / 12-SMT box honors 6, not 12, so the pool
+ * never sees threads > cpuCores (that split was CHEAT inflate).
+ */
+export function maxHonorThreads(physical = devicePhysicalCount()) {
+  const n = Math.max(1, Math.floor(Number(physical) || 1));
+  return Math.min(MAX_THREADS, n);
+}
+
+/** Default uses physical cores minus 1 (leave a core for the OS). Does not auto-double for SMT. */
+export function defaultThreadCount(physical = devicePhysicalCount(), logical = deviceLogicalCount()) {
+  const p = Math.max(1, Math.floor(Number(physical) || 1));
+  const cap = maxHonorThreads(p);
+  return Math.min(cap, p <= 1 ? 1 : p - 1);
+}
+
+export function honorThreads(raw, logical, physical) {
+  const logi = logical == null ? deviceLogicalCount() : Math.max(1, Math.floor(Number(logical) || 1));
+  const phys = physical == null
+    ? (logical == null ? devicePhysicalCount() : logi)
+    : Math.max(1, Math.floor(Number(physical) || 1));
+  const cap = maxHonorThreads(phys);
+  const inv = deviceCpuInventory(phys, logi);
   const n = Math.floor(Number(raw));
-  if (!Number.isFinite(n) || n < 1) return { threads: 1, cap };
-  return { threads: Math.min(cap, n), cap };
+  const threads = !Number.isFinite(n) || n < 1 ? 1 : Math.min(cap, n);
+  return { threads, cap, ...inv };
+}
+
+/**
+ * Device inventory for the pool. cpuCores = physical; cpuThreads = SMT
+ * logical processors. `threads` on the wire is farm.running (observed).
+ * Asking for 5 cores starts 5 workers — we do not spawn 5×smt ourselves.
+ */
+export function deviceCpuReport(physical = devicePhysicalCount(), logical = deviceLogicalCount()) {
+  const inv = deviceCpuInventory(physical, logical);
+  return {
+    ...inv,
+    maxThreads: Math.min(MAX_THREADS, inv.cpuThreads),
+  };
 }
 
 export function isGnfpPayoutAddress(value) {
@@ -320,11 +393,13 @@ export function liveThreads(cfg, farm) {
   return 0;
 }
 
-export function stratumLoginMsg(cfg, farm) {
+export function stratumLoginMsg(cfg, farm, physical, logical) {
+  const inv = physical == null ? deviceCpuReport() : deviceCpuReport(physical, logical ?? physical);
   return {
     method: 'login',
     login: cfg.user,
     threads: liveThreads(cfg, farm),
+    ...inv,
     client: CLIENT,
     version: VERSION,
     algorithm: ALGORITHM,
@@ -333,13 +408,18 @@ export function stratumLoginMsg(cfg, farm) {
   };
 }
 
-export function stratumStatsMsg(cfg, extra = {}, farm) {
-  const { threads: _ignoreThreads, client: _c, version: _v, algorithm: _a, ...rest } = extra || {};
+export function stratumStatsMsg(cfg, extra = {}, farm, physical, logical) {
+  const {
+    threads: _ignoreThreads, cpuCores: _c0, cpuThreads: _ct, smt: _s, maxThreads: _m0,
+    client: _c, version: _v, algorithm: _a, ...rest
+  } = extra || {};
+  const inv = physical == null ? deviceCpuReport() : deviceCpuReport(physical, logical ?? physical);
   return {
     method: 'stats',
     login: cfg.user,
     ...rest,
     threads: liveThreads(cfg, farm),
+    ...inv,
     client: CLIENT,
     version: VERSION,
     algorithm: ALGORITHM,
@@ -347,13 +427,15 @@ export function stratumStatsMsg(cfg, extra = {}, farm) {
   };
 }
 
-export function stratumSubmitMsg(cfg, job, nonce, farm) {
+export function stratumSubmitMsg(cfg, job, nonce, farm, physical, logical) {
   const snap = snapshotJob(job) || {};
   const jobId = snap.jobId || '1';
+  const inv = physical == null ? deviceCpuReport() : deviceCpuReport(physical, logical ?? physical);
   return {
     method: 'submit',
     login: cfg.user,
     threads: liveThreads(cfg, farm),
+    ...inv,
     client: CLIENT,
     version: VERSION,
     algorithm: ALGORITHM,
@@ -607,6 +689,7 @@ export function main(argv = process.argv, opts = {}) {
       pool: cfg.pool,
       user: cfg.user,
       threads: cfg.threads,
+      ...deviceCpuReport(),
       tls: Boolean(cfg.tls),
       host: cfg.host,
       port: cfg.port,

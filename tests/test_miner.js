@@ -19,6 +19,9 @@ import {
   createSharePipeline,
   formatLiveStatus,
   honorThreads,
+  deviceCpuCount,
+  deviceCpuReport,
+  deviceCpuInventory,
   loadMinerConfig,
   DEFAULT_POOL,
   MAX_THREADS,
@@ -117,7 +120,7 @@ test('stale 1.0.7 tls:false does not pin the public book to plaintext', () => {
   assert.equal(printed.status, 0);
   const got = JSON.parse(printed.stdout);
   assert.equal(got.tls, true);
-  assert.equal(got.version, '1.0.3');
+  assert.equal(got.version, '1.0.4');
 });
 
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
@@ -126,11 +129,14 @@ test('parse args default to GNFP pool and clamp threads 1–256', () => {
   assert.match(cfg.pool, /1474/);
   assert.ok(cfg.threads >= 1 && cfg.threads <= MAX_THREADS);
   assert.equal(honorThreads(0, 8).threads, 1);
-  assert.equal(honorThreads(180, 8).threads, 7);
-  assert.equal(honorThreads(8, 8).threads, 7);
+  assert.equal(honorThreads(180, 8).threads, 8, '1 thread = 1 core');
+  assert.equal(honorThreads(8, 8).threads, 8);
+  assert.equal(honorThreads(10, 12).threads, 10);
+  assert.equal(honorThreads(12, 12).threads, 12);
   assert.equal(honorThreads(4, 8).threads, 4);
-  assert.equal(honorThreads(9999, 16).threads, 15);
+  assert.equal(honorThreads(9999, 16).threads, 16);
   assert.equal(honorThreads(8, 1).threads, 1);
+  assert.equal(honorThreads(10, 12).cpuCores, 12);
   assert.equal(MAX_THREADS, 256);
 });
 
@@ -228,9 +234,9 @@ test('wire identity is GNFPHash 1.0.2; --notls is loopback-only', () => {
   for (const msg of [login, stats, sub]) {
     assert.equal(msg.client, 'GNFPHash');
     assert.equal(msg.algorithm, 'GNFPHash');
-    assert.equal(msg.version, '1.0.2');
+    assert.equal(msg.version, '1.0.4');
   }
-  assert.equal(VERSION, '1.0.2');
+  assert.equal(VERSION, '1.0.4');
 });
 
 test('login/stats/submit report farm.running not requested --threads', async () => {
@@ -391,7 +397,10 @@ test('--print-config after a saved valid setup reprints remembered flags', () =>
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
-  assert.equal(VERSION, '1.0.3');
+  assert.equal(VERSION, '1.0.4');
+  assert.equal(typeof a.cpuCores, 'number');
+  assert.ok(a.cpuCores >= 1);
+  assert.ok(a.threads <= a.cpuCores);
   const second = runMiner(['--print-config'], { GNFP_MINE_CONFIG: file });
   assert.equal(second.status, 0);
   const b = JSON.parse(second.stdout);
@@ -447,17 +456,105 @@ test('createHashFarm starts real workers that each hash', async () => {
   assert.ok(hashed > 0);
 });
 
+test('hash farm falls back to JS when the native binary cannot run', async () => {
+  const junk = path.join(os.tmpdir(), `gnfp-not-native-${process.pid}`);
+  fs.writeFileSync(junk, 'not a native hasher\n');
+  fs.chmodSync(junk, 0o755);
+  const prevBin = process.env.GNFP_NATIVE_BIN;
+  const prevNat = process.env.GNFP_NATIVE;
+  process.env.GNFP_NATIVE = '1';
+  process.env.GNFP_NATIVE_BIN = junk;
+  try {
+    const farm = createHashFarm(1);
+    let hashed = 0;
+    farm.onMessage((m) => {
+      if (m.type === 'hashed') hashed += Number(m.n) || 0;
+    });
+    farm.setJob({ input: 'pre', difficulty: 1, jobId: 't' });
+    const deadline = Date.now() + 4000;
+    while (Date.now() < deadline && hashed < 1) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await farm.close();
+    assert.ok(hashed > 0);
+  } finally {
+    if (prevBin == null) delete process.env.GNFP_NATIVE_BIN;
+    else process.env.GNFP_NATIVE_BIN = prevBin;
+    if (prevNat == null) delete process.env.GNFP_NATIVE;
+    else process.env.GNFP_NATIVE = prevNat;
+    fs.rmSync(junk, { force: true });
+  }
+});
+
 test('login/stats/submit report live farm threads, never a fake --threads count', () => {
   const farm = { running: 3 };
   const cfg = { user: VALID_LOGIN, threads: 64 };
-  const login = stratumLoginMsg(cfg, farm);
-  const stats = stratumStatsMsg(cfg, {}, farm);
-  const submit = stratumSubmitMsg(cfg, { jobId: 'j1', input: 'pre', difficulty: 1 }, '0000000000000001', farm);
+  const login = stratumLoginMsg(cfg, farm, 12);
+  const stats = stratumStatsMsg(cfg, {}, farm, 12);
+  const submit = stratumSubmitMsg(cfg, { jobId: 'j1', input: 'pre', difficulty: 1 }, '0000000000000001', farm, 12);
   assert.equal(login.threads, 3);
   assert.equal(stats.threads, 3);
   assert.equal(submit.threads, 3);
+  assert.equal(login.cpuCores, 12);
+  assert.equal(stats.cpuCores, 12);
+  assert.equal(submit.cpuCores, 12);
+  assert.equal(login.maxThreads, 12);
+  assert.ok(login.threads <= login.cpuCores);
   assert.equal(login.client, 'GNFPHash');
   assert.equal(login.algorithm, 'GNFPHash');
-  assert.equal(login.version, '1.0.3');
+  assert.equal(login.version, '1.0.4');
   assert.notEqual(login.threads, cfg.threads);
+});
+
+test('10 workers on a 12-core device is an honest 1-thread-per-core farm', () => {
+  const honor = honorThreads(10, 12);
+  assert.equal(honor.threads, 10);
+  assert.equal(honor.cpuCores, 12);
+  assert.equal(honor.cap, 12);
+  const farm = { running: 10 };
+  const login = stratumLoginMsg({ user: VALID_LOGIN, threads: 10 }, farm, 12);
+  assert.equal(login.threads, 10);
+  assert.equal(login.cpuCores, 12);
+  assert.ok(login.threads <= login.cpuCores);
+  const report = deviceCpuReport(12);
+  assert.equal(report.cpuCores, 12);
+  assert.equal(report.maxThreads, 12);
+  assert.ok(deviceCpuCount() >= 1);
+});
+
+test('physical cores and SMT threads are distinct; --threads does not auto-double', () => {
+  const inv = deviceCpuInventory(5, 10);
+  assert.equal(inv.cpuCores, 5);
+  assert.equal(inv.cpuThreads, 10);
+  assert.equal(inv.smt, 2);
+  const five = honorThreads(5, 10, 5);
+  assert.equal(five.threads, 5, '5 cores requested → 5 workers, not 10');
+  assert.equal(five.cpuCores, 5);
+  assert.equal(five.cpuThreads, 10);
+  assert.equal(five.smt, 2);
+  const smtFarm = honorThreads(10, 10, 5);
+  assert.equal(smtFarm.threads, 5, 'honor caps at physical cpuCores, not SMT pairs');
+  assert.ok(smtFarm.threads <= smtFarm.cpuCores);
+  const farm = { running: 5 };
+  const login = stratumLoginMsg({ user: VALID_LOGIN, threads: 5 }, farm, 5, 10);
+  assert.equal(login.threads, 5);
+  assert.equal(login.cpuCores, 5);
+  assert.equal(login.cpuThreads, 10);
+  assert.equal(login.smt, 2);
+  assert.equal(login.maxThreads, 10);
+});
+
+test('honorThreads(10, 12, 6) caps at physical cpuCores so the pool does not see inflate', () => {
+  const honor = honorThreads(10, 12, 6);
+  assert.equal(honor.cpuCores, 6);
+  assert.equal(honor.cpuThreads, 12);
+  assert.equal(honor.smt, 2);
+  assert.equal(honor.cap, 6);
+  assert.equal(honor.threads, 6);
+  assert.ok(honor.threads <= honor.cpuCores);
+  const farm = { running: honor.threads };
+  const login = stratumLoginMsg({ user: VALID_LOGIN, threads: 10 }, farm, honor.cpuCores, honor.cpuThreads);
+  assert.equal(login.threads, 6);
+  assert.equal(login.cpuCores, 6);
+  assert.ok(login.threads <= login.cpuCores);
 });

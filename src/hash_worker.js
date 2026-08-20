@@ -9,15 +9,31 @@ import { fileURLToPath } from 'node:url';
 import { parentPort, workerData } from 'node:worker_threads';
 import { hashNonceRange, snapshotJob } from './hash_share.js';
 
-const nativeBin = fileURLToPath(new URL('./native/gnfphash', import.meta.url));
-const hasNative = process.env.GNFP_NATIVE === '1' && fs.existsSync(nativeBin);
+const nativeBin = process.env.GNFP_NATIVE_BIN
+  || fileURLToPath(new URL('./native/gnfphash', import.meta.url));
+const nativeWanted = process.env.GNFP_NATIVE === '1' && fs.existsSync(nativeBin);
+let nativeDead = false;
+let nativeEverHashed = false;
 let native = null;
 let nativeBuf = '';
 const nativeQueue = [];
 
+function failWaiters() {
+  while (nativeQueue.length) {
+    const w = nativeQueue.shift();
+    if (typeof w.fail === 'function') w.fail();
+  }
+}
+
 function startNative() {
-  if (!hasNative || native) return native;
-  native = spawn(nativeBin, [], { stdio: ['pipe', 'pipe', 'ignore'] });
+  if (nativeDead || !nativeWanted) return null;
+  if (native) return native;
+  try {
+    native = spawn(nativeBin, [], { stdio: ['pipe', 'pipe', 'ignore'] });
+  } catch {
+    nativeDead = true;
+    return null;
+  }
   native.stdout.setEncoding('utf8');
   native.stdout.on('data', (chunk) => {
     nativeBuf += chunk;
@@ -34,6 +50,7 @@ function startNative() {
         if (msg.type === 'hashed') {
           waiter.hashes = Number(msg.n) || waiter.count;
           nativeQueue.shift();
+          nativeEverHashed = true;
           waiter.done();
         }
       } catch {
@@ -41,7 +58,18 @@ function startNative() {
       }
     }
   });
-  native.on('exit', () => { native = null; });
+  native.on('error', () => {
+    nativeDead = true;
+    native = null;
+    failWaiters();
+  });
+  native.on('exit', () => {
+    native = null;
+    if (!nativeEverHashed) {
+      nativeDead = true;
+      failWaiters();
+    }
+  });
   return native;
 }
 
@@ -49,20 +77,31 @@ function nativeRange(job, start, count, stride) {
   const proc = startNative();
   if (!proc || !proc.stdin.writable) return Promise.resolve(null);
   return new Promise((resolve) => {
-    const waiter = { shares: [], hashes: 0, count, done: () => resolve({
-      hashes: waiter.hashes || count,
-      shares: waiter.shares,
-      nextNonce: start + count * stride,
-    }) };
-    nativeQueue.push(waiter);
-    proc.stdin.write(`${JSON.stringify({
-      type: 'job',
-      pre: String(job?.input || job?.preWork || ''),
-      bits: Math.max(1, Number(job?.difficulty) || 1),
-      start,
+    const waiter = {
+      shares: [],
+      hashes: 0,
       count,
-      stride,
-    })}\n`);
+      done: () => resolve({
+        hashes: waiter.hashes || count,
+        shares: waiter.shares,
+        nextNonce: start + count * stride,
+      }),
+      fail: () => resolve(null),
+    };
+    nativeQueue.push(waiter);
+    try {
+      proc.stdin.write(`${JSON.stringify({
+        type: 'job',
+        pre: String(job?.input || job?.preWork || ''),
+        bits: Math.max(1, Number(job?.difficulty) || 1),
+        start,
+        count,
+        stride,
+      })}\n`);
+    } catch {
+      nativeDead = true;
+      failWaiters();
+    }
   });
 }
 
@@ -85,8 +124,9 @@ async function pump() {
   if (!running) return;
   const current = job;
   if (current) {
-    const batch = hasNative ? 8192 : 256;
-    const got = (hasNative ? await nativeRange(current, start, batch, stride) : null)
+    const useNative = nativeWanted && !nativeDead;
+    const batch = useNative ? 8192 : 256;
+    const got = (useNative ? await nativeRange(current, start, batch, stride) : null)
       || hashNonceRange(current, start, batch, stride);
     start = got.nextNonce;
     if (got.hashes) parentPort.postMessage({ type: 'hashed', n: got.hashes, workerId });

@@ -4,9 +4,9 @@ Official **$GNFP** CPU miner. CLI only (a GUI comes later).
 
 - Coin: GNFP
 - Algo: **GNFPHash** (dedicated CPU work hash). BeamHash III, old gnfp-mine, GPU, and ASIC mint nothing.
-- Pin: **1.0.2** — https://github.com/rgsneddon/GNFPHash/releases
+- Pin: **1.0.4** — https://github.com/rgsneddon/GNFPHash/releases
 - Stratum: TLS by default to `de.restoreprivacy.online:1474` (`--notls` for local plaintext)
-- Login/stats/submit report **running farm threads**, not a requested `--threads` lie. That report cannot be turned off.
+- Login/stats/submit report **running farm threads** plus **cpuCores** read from the device (`os.availableParallelism` / `os.cpus`). 1 thread = 1 core. That report cannot be turned off.
 - Miner identities stay hashed. The client does not publish wallets, IPs, or logins to the public explorer.
 - Also: `sg.restoreprivacy.online:1474`
 
@@ -73,7 +73,7 @@ Or:
 pack\win\gnfp-mine.cmd --user gnfp18ff7e8b2f0ef3e96f598231638aafd5a5abc490c.worker --threads 8
 ```
 
-`--threads` starts that many real CPU `worker_threads` (default = device CPUs minus 1, max 256). Pick your own worker tag (`--user gnfp1….NAME` or `--worker NAME`, 1–24 letters/digits/`_`/`-`). The default tag if omitted is `worker`.
+`--threads` starts that many real CPU `worker_threads`. **1 thread = 1 CPU core** (default = device cores minus 1 so the OS keeps a core; max = the cores this machine actually has). The miner reads the device and reports `cpuCores` on every login/stats/submit so the pool can mark a 10-thread farm on a 12-core box HONEST. Pick your own worker tag (`--user gnfp1….NAME` or `--worker NAME`, 1–24 letters/digits/`_`/`-`). The default tag if omitted is `worker`.
 
 ## Remembered config
 
