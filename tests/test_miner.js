@@ -117,7 +117,7 @@ test('stale 1.0.7 tls:false does not pin the public book to plaintext', () => {
   assert.equal(printed.status, 0);
   const got = JSON.parse(printed.stdout);
   assert.equal(got.tls, true);
-  assert.equal(got.version, '1.0.2');
+  assert.equal(got.version, '1.0.3');
 });
 
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
@@ -391,7 +391,7 @@ test('--print-config after a saved valid setup reprints remembered flags', () =>
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
-  assert.equal(VERSION, '1.0.2');
+  assert.equal(VERSION, '1.0.3');
   const second = runMiner(['--print-config'], { GNFP_MINE_CONFIG: file });
   assert.equal(second.status, 0);
   const b = JSON.parse(second.stdout);
@@ -445,4 +445,19 @@ test('createHashFarm starts real workers that each hash', async () => {
   await farm.close();
   assert.equal(seen.size, 2);
   assert.ok(hashed > 0);
+});
+
+test('login/stats/submit report live farm threads, never a fake --threads count', () => {
+  const farm = { running: 3 };
+  const cfg = { user: VALID_LOGIN, threads: 64 };
+  const login = stratumLoginMsg(cfg, farm);
+  const stats = stratumStatsMsg(cfg, {}, farm);
+  const submit = stratumSubmitMsg(cfg, { jobId: 'j1', input: 'pre', difficulty: 1 }, '0000000000000001', farm);
+  assert.equal(login.threads, 3);
+  assert.equal(stats.threads, 3);
+  assert.equal(submit.threads, 3);
+  assert.equal(login.client, 'GNFPHash');
+  assert.equal(login.algorithm, 'GNFPHash');
+  assert.equal(login.version, '1.0.3');
+  assert.notEqual(login.threads, cfg.threads);
 });

@@ -24,7 +24,7 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.0.2';
+export const VERSION = '1.0.3';
 export const CLIENT = 'GNFPHash';
 export const ALGORITHM = 'GNFPHash';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
@@ -39,7 +39,7 @@ export const MAX_WORKER_LEN = 24;
 export const WORKER_RE = /^[a-z0-9_-]{1,24}$/i;
 export const REFUSE_MSG = 'gnfp-mine: refuse — need a real gnfp1 payout address (--user gnfp1….worker)';
 export const WORKER_REFUSE_MSG = `gnfp-mine: refuse — worker name must be ${MIN_WORKER_LEN}–${MAX_WORKER_LEN} letters, digits, _ or - (--user gnfp1ADDRESS.NAME or --worker NAME)`;
-export const OLD_MINER_HINT = 'pool refused this client — use GNFPHash 1.0.2+ (client/algorithm GNFPHash) against gnfp-node 1.0.8+';
+export const OLD_MINER_HINT = 'pool refused this client — use GNFPHash 1.0.3+ (client/algorithm GNFPHash) against gnfp-node 1.1.8+';
 
 export const HELP = `GNFPHash ${VERSION} — $GNFP CPU miner (gnfp-mine binary). CPU-only. BeamHash III mints nothing.
 
@@ -376,6 +376,7 @@ export function createHashFarm(threadCount, workerPath = HASH_WORKER) {
   for (let i = 0; i < n; i += 1) {
     const w = new Worker(workerPath, {
       workerData: { id: i, start: i, stride: n },
+      env: { ...process.env, GNFP_NATIVE: process.env.GNFP_NATIVE || '1' },
     });
     w.on('message', (m) => {
       for (const fn of listeners) fn({ ...m, workerId: i });
