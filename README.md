@@ -120,7 +120,7 @@ Shares shown on the public pool page are **this block only**. This miner submits
 
 ## How-to: solo mine
 
-Solo means **your miner talks to a local equal/solo node**, not to Germany’s pool. The node is [gnfp-node](https://github.com/rgsneddon/gnfp-node) **1.2.6** (or later). `--equal` / `--book` **mints a local book** — it can fork if it is not kept in sync with the live chain. Default node mode is **join** (relay into Germany). Solo is operator-only.
+Solo means **your miner talks to a local equal daemon**, not only to Germany’s pool. The node is [gnfp-node](https://github.com/rgsneddon/gnfp-node) **1.2.7** (or later). Default node mode is an **equal daemon** (local stratum is that book). `--join` is opt-in relay. `HASH_TX_LIVE` stays **0**.
 
 Needs Node.js 18+ for **both** the node and this miner.
 
