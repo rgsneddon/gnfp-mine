@@ -122,7 +122,7 @@ test('stale 1.0.7 tls:false does not pin the public book to plaintext', () => {
   assert.equal(printed.status, 0);
   const got = JSON.parse(printed.stdout);
   assert.equal(got.tls, true);
-  assert.equal(got.version, '1.0.5');
+  assert.equal(got.version, VERSION);
 });
 
 test('parse args default to GNFP pool and clamp threads 1–256', () => {
@@ -236,9 +236,9 @@ test('wire identity is GNFPHash 1.0.2; --notls is loopback-only', () => {
   for (const msg of [login, stats, sub]) {
     assert.equal(msg.client, 'GNFPHash');
     assert.equal(msg.algorithm, 'GNFPHash');
-    assert.equal(msg.version, '1.0.5');
+    assert.equal(msg.version, VERSION);
   }
-  assert.equal(VERSION, '1.0.5');
+  assert.equal(VERSION, '1.0.6');
 });
 
 test('login/stats/submit report farm.running not requested --threads', async () => {
@@ -432,7 +432,7 @@ test('--print-config after a saved valid setup reprints remembered flags', () =>
   assert.equal(a.pool, 'sg.restoreprivacy.online:1474');
   assert.equal(a.coin, 'GNFP');
   assert.equal(a.version, VERSION);
-  assert.equal(VERSION, '1.0.5');
+  assert.equal(VERSION, '1.0.6');
   assert.equal(typeof a.cpuCores, 'number');
   assert.ok(a.cpuCores >= 1);
   assert.ok(a.threads <= a.cpuThreads || a.threads <= a.cpuCores);
@@ -537,7 +537,7 @@ test('login/stats/submit report live farm threads, never a fake --threads count'
   assert.ok(login.threads <= login.maxThreads);
   assert.equal(login.client, 'GNFPHash');
   assert.equal(login.algorithm, 'GNFPHash');
-  assert.equal(login.version, '1.0.5');
+  assert.equal(login.version, VERSION);
   assert.notEqual(login.threads, cfg.threads);
 });
 
@@ -595,7 +595,7 @@ test('honorThreads(10, 12, 6) runs 10 workers on a 12-thread CPU', () => {
   assert.equal(login.cpuCores, 6);
   assert.equal(login.cpuThreads, 12);
   assert.equal(login.smt, 2);
-  assert.equal(login.version, '1.0.5');
+  assert.equal(login.version, VERSION);
   assert.ok(login.threads <= login.cpuThreads);
   assert.equal(typeof login.platform, 'string');
   assert.equal(typeof login.arch, 'string');

@@ -4,7 +4,7 @@ Official **$GNFP** CPU miner. CLI only (a GUI comes later).
 
 - Coin: GNFP
 - Algo: **GNFPHash** (dedicated CPU work hash). BeamHash III, old gnfp-mine, GPU, and ASIC mint nothing.
-- Pin: **1.0.5** — https://github.com/rgsneddon/GNFPHash/releases
+- Pin: **1.0.6** — https://github.com/rgsneddon/GNFPHash/releases
 - Stratum: TLS by default to `de.restoreprivacy.online:1474` (`--notls` for local plaintext)
 - Login/stats/submit report **running farm threads** plus **cpuCores** / **cpuThreads**. `--threads 10` on a 12-thread CPU runs 10 (hard clamp 256).
 - Miner identities stay hashed. The client does not publish wallets, IPs, or logins to the public explorer.
@@ -12,7 +12,7 @@ Official **$GNFP** CPU miner. CLI only (a GUI comes later).
 
 The miner **refuses to connect or hash** unless `--user` is a real `gnfp1` payout address. After a valid run it remembers pool, user, and threads so the next launch can omit those flags.
 
-Needs **Node.js 18+**.
+Needs **Node.js 18+** on your PATH (`node -v`). The pack wrappers (`pack/unix/gnfp-mine`, `pack/win/gnfp-mine.cmd`) say so if `node` is missing. Installing Node from https://nodejs.org includes **npm**; you do **not** `npm install` this miner (no packages). `exec: node: not found` means Node is not on PATH — install Node 18+, not an npm package.
 
 ## Get a gnfp1 address
 
@@ -117,6 +117,66 @@ Once connected you get job lines and a status line with:
 Each pool share reply is printed as `accepted share`, `rejected share`, or `BLOCK FOUND`. Counters follow those replies (code `1` / description `accepted`, negative code / `rejected`, or a formed-block mark).
 
 Shares shown on the public pool page are **this block only**. This miner submits difficulty-valid work hashes only. A share is bound to the job it was found on, re-checked locally, and sent one at a time — stale or duplicate lines are dropped here so the book does not reject them.
+
+## How-to: solo mine
+
+Solo means **your miner talks to a local equal/solo node**, not to Germany’s pool. The node is [gnfp-node](https://github.com/rgsneddon/gnfp-node) **1.2.6** (or later). `--equal` / `--book` **mints a local book** — it can fork if it is not kept in sync with the live chain. Default node mode is **join** (relay into Germany). Solo is operator-only.
+
+Needs Node.js 18+ for **both** the node and this miner.
+
+1. Start an equal/solo node (separate terminal, leave it running):
+
+```
+git clone https://github.com/rgsneddon/gnfp-node.git
+cd gnfp-node
+git checkout v1.2.6
+node src/node.js --equal --data-dir ~/.gnfp-equal --notls
+```
+
+Unix pack: `./pack/unix/gnfp-node --equal --data-dir ~/.gnfp-equal --notls`  
+Windows: `pack\win\gnfp-node.cmd --equal --data-dir %USERPROFILE%\.gnfp-equal --notls`
+
+`--notls` is local plaintext stratum on this machine. Public books stay TLS.
+
+Check the node:
+
+```
+node src/node.js --print-config --equal
+curl -sS http://127.0.0.1:8014/api/tip
+```
+
+`--print-config` `join` is false and `equalNode` is true. Tip HTTP is `:8014`; stratum is `:1474`.
+
+2. Point **GNFPHash 1.0.6** at that local stratum (`--notls` because the solo node was started `--notls`):
+
+```
+cd GNFPHash
+node src/miner.js --pool 127.0.0.1:1474 --user gnfp1YOURADDRESS.worker --threads 8 --notls
+```
+
+Or:
+
+```
+./pack/unix/gnfp-mine --pool 127.0.0.1:1474 --user gnfp1YOURADDRESS.worker --threads 8 --notls
+```
+
+Windows:
+
+```
+pack\win\gnfp-mine.cmd --pool 127.0.0.1:1474 --user gnfp1YOURADDRESS.worker --threads 8 --notls
+```
+
+Use **1.0.4 or newer**. 1.0.3 and lower earn nothing (`miner_update_required`). `--threads` is utilised workers; the miner also reports device `cpuCores` / `cpuThreads`.
+
+3. Confirm work on the solo node:
+
+```
+curl -sS http://127.0.0.1:8014/api/network
+```
+
+You should see your worker, proven hashrate, and height moving on **that** data dir — not on https://gnfp.restoreprivacy.online unless you also run a join miner at Germany.
+
+To mine the **live** book instead, omit `--equal` on the node (join) or point this miner at `de.restoreprivacy.online:1474` **with TLS** (no `--notls`).
 
 ## Flags
 

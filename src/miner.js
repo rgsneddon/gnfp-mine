@@ -25,7 +25,8 @@ export {
   hashMeetsJob,
 } from './hash_share.js';
 
-export const VERSION = '1.0.5';
+export const VERSION = '1.0.6';
+export const NODE_REQUIRED_MSG = 'gnfp-mine: Node.js 18+ is required (the node command was not on PATH).';
 export const CLIENT = 'GNFPHash';
 export const ALGORITHM = 'GNFPHash';
 export const DEFAULT_POOL = 'de.restoreprivacy.online:1474';
