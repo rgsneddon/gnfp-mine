@@ -43,7 +43,7 @@ export const REFUSE_MSG = 'gnfp-mine: refuse — need a real gnfp1 payout addres
 export const WORKER_REFUSE_MSG = `gnfp-mine: refuse — worker name must be ${MIN_WORKER_LEN}–${MAX_WORKER_LEN} letters, digits, _ or - (--user gnfp1ADDRESS.NAME or --worker NAME)`;
 export const OLD_MINER_HINT = 'pool refused this client — use GNFPHash 1.0.4+ (client/algorithm GNFPHash) against gnfp-node 1.1.8+';
 
-export const HELP = `GNFPHash ${VERSION} — $GNFP CPU miner (gnfp-mine binary). CPU-only. BeamHash III mints nothing.
+export const HELP = `GNFPHash ${VERSION} — $GNFP CPU miner (gnfp-mine binary). CPU-only. GPU/ASIC mint nothing.
 
 Usage:
   gnfp-mine --pool de.restoreprivacy.online:1474 --user gnfp1YOURADDRESS.worker --threads 8

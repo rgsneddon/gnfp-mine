@@ -1,7 +1,7 @@
 {
   "name": "GNFPHash",
   "version": "1.0.6",
-  "description": "GNFPHash — official $GNFP CPU miner. BeamHash III / old gnfp-mine / GPU / ASIC are refused.",
+  "description": "GNFPHash — deprecated Node miner. Official pin is gnfp-cminer 1.1.0. GPU / ASIC / old gnfp-mine are refused.",
   "type": "module",
   "bin": {
     "gnfp-mine": "src/miner.js"

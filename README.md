@@ -1,10 +1,10 @@
 # GNFPHash
 
-Official **$GNFP** CPU miner. CLI only (a GUI comes later).
+**Deprecated as the miner everyone should pull.** The official CPU miner is now **[gnfp-cminer](https://github.com/rgsneddon/gnfp-cminer)** pin **1.1.0** (C, same GNFPHash-v1 work hash, same `client=GNFPHash` admit wire). This Node tree still earns at **1.0.4+**; do not prefer it for new installs.
 
 - Coin: GNFP
-- Algo: **GNFPHash** (dedicated CPU work hash). BeamHash III, old gnfp-mine, GPU, and ASIC mint nothing.
-- Pin: **1.0.6** — https://github.com/rgsneddon/GNFPHash/releases
+- Algo: **GNFPHash** (dedicated CPU work hash). GPU, ASIC, and old gnfp-mine mint nothing.
+- Pin: **1.0.6** — https://github.com/rgsneddon/GNFPHash/releases (deprecated; use https://github.com/rgsneddon/gnfp-cminer)
 - Stratum: TLS by default to `de.restoreprivacy.online:1474` (`--notls` for local plaintext)
 - Login/stats/submit report **running farm threads** plus **cpuCores** / **cpuThreads**. `--threads 10` on a 12-thread CPU runs 10 (hard clamp 256).
 - Miner identities stay hashed. The client does not publish wallets, IPs, or logins to the public explorer.
